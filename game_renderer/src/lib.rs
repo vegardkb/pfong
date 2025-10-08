@@ -7,8 +7,8 @@ pub trait Renderer {
 
 fn draw_player(player: &Player) {
     let pos = player.get_pos();
-    let x = pos.x * screen_width();
-    let y = pos.y * screen_height();
+    let x = pos[0] * screen_width();
+    let y = pos[1] * screen_height();
     let height = player.get_height() * screen_height();
     let width = player.get_width() * screen_height();
     let angle = player.get_angle();
@@ -24,8 +24,8 @@ fn draw_player(player: &Player) {
 
 fn draw_ball(ball: &Ball) {
     let pos = ball.get_pos();
-    let x = pos.x * screen_width();
-    let y = pos.y * screen_height();
+    let x = pos[0] * screen_width();
+    let y = pos[1] * screen_height();
     let radius = ball.get_radius() * screen_width();
     draw_circle(x, y, radius, WHITE);
 }
@@ -45,5 +45,31 @@ impl Renderer for WindowRenderer {
         draw_player(game_state.get_player1());
         draw_player(game_state.get_player2());
         draw_ball(game_state.get_ball());
+    }
+}
+
+impl Default for WindowRenderer {
+    fn default() -> Self {
+        WindowRenderer::new()
+    }
+}
+
+pub struct HeadlessRenderer {}
+
+impl HeadlessRenderer {
+    pub fn new() -> Self {
+        HeadlessRenderer {}
+    }
+}
+
+impl Renderer for HeadlessRenderer {
+    fn render(&self, _game_state: &GameState) {
+        // No rendering in headless mode
+    }
+}
+
+impl Default for HeadlessRenderer {
+    fn default() -> Self {
+        HeadlessRenderer::new()
     }
 }

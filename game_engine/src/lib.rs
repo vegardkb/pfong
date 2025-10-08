@@ -1,19 +1,20 @@
-use macroquad::math::{Vec2, vec2};
+use macroquad::math::vec2;
+use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
-use std::time::Instant;
 
 pub struct GameEngine {
     state: GameState,
     config: GameConfig,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct GameState {
     player1: Player,
     player2: Player,
     ball: Ball,
     score: [u32; 2],
-    hit_time: Instant,
-    point_time: Instant,
+    hit_time: f32,
+    point_time: f32,
 }
 
 pub struct GameConfig {
@@ -25,10 +26,11 @@ pub struct GameConfig {
     player_angular_friction: f32,
     player_mass: f32,
     ball_radius: f32,
-    ball_speed: Vec2,
+    ball_speed: [f32; 2],
     ball_mass: f32,
 }
 
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Action {
     pub left: bool,
     pub right: bool,
@@ -38,22 +40,24 @@ pub struct Action {
     pub rotate_right: bool,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Ball {
-    pos: Vec2,
-    speed: Vec2,
+    pos: [f32; 2],
+    speed: [f32; 2],
     radius: f32,
     mass: f32,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Player {
-    pos: Vec2,
+    pos: [f32; 2],
     min_x: f32,
     max_x: f32,
     min_y: f32,
     max_y: f32,
     width: f32,
     height: f32,
-    speed: Vec2,
+    speed: [f32; 2],
     linear_acc: f32,
     linear_friction: f32,
     angle: f32,
@@ -67,7 +71,7 @@ impl GameEngine {
     pub fn new(config: GameConfig) -> Self {
         GameEngine {
             state: GameState::new(&config),
-            config: config,
+            config,
         }
     }
 
@@ -75,7 +79,7 @@ impl GameEngine {
         self.state = GameState::new(&self.config);
     }
 
-    pub fn step(&mut self, actions: [Action; 2], delta_time: f32) {
+    pub fn step(&mut self, actions: (Action, Action), delta_time: f32) {
         self.state.step(actions, delta_time);
     }
 
@@ -91,33 +95,43 @@ impl GameState {
             player2: Player::new(config, 2),
             ball: Ball::new(config),
             score: [0, 0],
-            hit_time: Instant::now(),
-            point_time: Instant::now(),
+            hit_time: 0.0,
+            point_time: 0.0,
         }
     }
 
-    fn step(&mut self, actions: [Action; 2], delta_time: f32) {
-        self.player1.input(&actions[0], delta_time);
-        self.player2.input(&actions[1], delta_time);
-        if self.hit_time.elapsed().as_millis() > 50 {
-            if self.ball.check_collision(&mut self.player1)
-                | self.ball.check_collision(&mut self.player2)
-            {
-                self.hit_time = Instant::now();
-            }
+    fn step(&mut self, actions: (Action, Action), delta_time: f32) {
+        self.hit_time += delta_time;
+        self.point_time += delta_time;
+
+        self.player1.input(&actions.0, delta_time);
+        self.player2.input(&actions.1, delta_time);
+        if self.hit_time > 0.05
+            && (self.ball.check_collision(&mut self.player1)
+                | self.ball.check_collision(&mut self.player2))
+        {
+            self.hit_time = 0.0;
         }
 
         self.player1.update(delta_time);
         self.player2.update(delta_time);
 
         let wall_hit = self.ball.update(delta_time);
-        if self.point_time.elapsed().as_millis() > 100 {
+        if self.point_time > 0.1 {
+            let point_scored;
             if wall_hit == 1 {
                 self.score[0] += 1;
-                self.point_time = Instant::now();
+                self.point_time = 0.0;
+                point_scored = true;
             } else if wall_hit == 2 {
                 self.score[1] += 1;
-                self.point_time = Instant::now();
+                self.point_time = 0.0;
+                point_scored = true;
+            } else {
+                point_scored = false;
+            }
+            if point_scored {
+                println!("{} - {}", self.score[0], self.score[1]);
             }
         }
     }
@@ -139,8 +153,8 @@ impl GameState {
     }
 }
 
-impl GameConfig {
-    pub fn default() -> Self {
+impl Default for GameConfig {
+    fn default() -> Self {
         GameConfig {
             player_width: 0.01,
             player_height: 0.15,
@@ -150,7 +164,7 @@ impl GameConfig {
             player_angular_friction: 0.4,
             player_mass: 2.0,
             ball_radius: 0.01,
-            ball_speed: vec2(0.1, 0.01),
+            ball_speed: [0.1, 0.01],
             ball_mass: 1.0,
         }
     }
@@ -159,7 +173,7 @@ impl GameConfig {
 impl Ball {
     fn new(config: &GameConfig) -> Self {
         Ball {
-            pos: vec2(0.5, 0.5),
+            pos: [0.5, 0.5],
             speed: config.ball_speed,
             radius: config.ball_radius,
             mass: config.ball_mass,
@@ -167,35 +181,40 @@ impl Ball {
     }
 
     fn update(&mut self, delta_time: f32) -> u8 {
-        if self.pos.x - self.radius < 0.0 {
-            self.speed.x = self.speed.x.abs();
+        if self.pos[0] - self.radius < 0.0 {
+            self.speed[0] = self.speed[0].abs();
         }
-        if self.pos.x + self.radius > 1.0 {
-            self.speed.x = -self.speed.x.abs();
+        if self.pos[0] + self.radius > 1.0 {
+            self.speed[0] = -self.speed[0].abs();
         }
-        if self.pos.y - self.radius < 0.0 {
-            self.speed.y = self.speed.y.abs();
+        if self.pos[1] - self.radius < 0.0 {
+            self.speed[1] = self.speed[1].abs();
         }
-        if self.pos.y + self.radius > 1.0 {
-            self.speed.y = -self.speed.y.abs();
+        if self.pos[1] + self.radius > 1.0 {
+            self.speed[1] = -self.speed[1].abs();
         }
 
-        let wall_hit = if self.pos.x - self.radius < 0.0 {
+        let wall_hit = if self.pos[0] - self.radius < 0.0 {
             1
-        } else if self.pos.x + self.radius > 1.0 {
+        } else if self.pos[0] + self.radius > 1.0 {
             2
         } else {
             0
         };
 
-        self.pos.x += self.speed.x * delta_time;
-        self.pos.y += self.speed.y * delta_time;
+        self.pos[0] += self.speed[0] * delta_time;
+        self.pos[1] += self.speed[1] * delta_time;
 
         wall_hit
     }
 
     fn check_collision(&mut self, player: &mut Player) -> bool {
-        let dc = self.pos - player.pos;
+        let ball_pos = vec2(self.pos[0], self.pos[1]);
+        let player_pos = vec2(player.pos[0], player.pos[1]);
+        let mut ball_speed = vec2(self.speed[0], self.speed[1]);
+        let mut player_speed = vec2(player.speed[0], player.speed[1]);
+
+        let dc = ball_pos - player_pos;
         let r = player.height * vec2(player.angle.cos(), player.angle.sin()) / 2.0;
         let d1s = dc + r;
         let d1 = d1s.dot(d1s).sqrt();
@@ -209,23 +228,25 @@ impl Ball {
             let n = vec2(-player.angle.sin(), player.angle.cos());
 
             let d = d1 * player.height / (d1 + d2) - player.height / 2.0;
-            let v_c = player.speed + player.angular_velocity * d * n;
+            let v_c = player_speed + player.angular_velocity * d * n;
 
-            let v_rel = self.speed - v_c;
+            let v_rel = ball_speed - v_c;
 
             let i = player.mass * player.height * player.height / 12.0;
             let j = -2.0 * v_rel.dot(n) / (1.0 / self.mass + 1.0 / player.mass + (d * d) / i);
 
-            self.speed += j * n / self.mass;
+            ball_speed += j * n / self.mass;
+            self.speed = [ball_speed.x, ball_speed.y];
 
-            player.speed -= j * n / player.mass;
+            player_speed -= j * n / player.mass;
+            player.speed = [player_speed.x, player_speed.y];
             player.angular_velocity -= j * d / i;
             out = true;
         }
         out
     }
 
-    pub fn get_pos(&self) -> Vec2 {
+    pub fn get_pos(&self) -> [f32; 2] {
         self.pos
     }
 
@@ -243,8 +264,8 @@ impl Player {
         let max_y = 1.0;
 
         Player {
-            pos: vec2(xpos, 0.5),
-            speed: vec2(0.0, 0.0),
+            pos: [xpos, 0.5],
+            speed: [0.0, 0.0],
             angular_velocity: 0.0,
             mass: config.player_mass,
             width: config.player_width,
@@ -254,25 +275,25 @@ impl Player {
             linear_friction: config.player_linear_friction,
             angular_acc: config.player_angular_acc,
             angular_friction: config.player_angular_friction,
-            min_x: min_x,
-            max_x: max_x,
-            min_y: min_y,
-            max_y: max_y,
+            min_x,
+            max_x,
+            min_y,
+            max_y,
         }
     }
 
     fn input(&mut self, action: &Action, delta_time: f32) {
         if action.up {
-            self.speed.y -= self.linear_acc * delta_time;
+            self.speed[1] -= self.linear_acc * delta_time;
         }
         if action.down {
-            self.speed.y += self.linear_acc * delta_time;
+            self.speed[1] += self.linear_acc * delta_time;
         }
         if action.left {
-            self.speed.x -= self.linear_acc * delta_time;
+            self.speed[0] -= self.linear_acc * delta_time;
         }
         if action.right {
-            self.speed.x += self.linear_acc * delta_time;
+            self.speed[0] += self.linear_acc * delta_time;
         }
         if action.rotate_left {
             self.angular_velocity -= self.angular_acc * delta_time;
@@ -283,8 +304,8 @@ impl Player {
     }
 
     fn update(&mut self, delta_time: f32) {
-        self.pos.x += self.speed.x * delta_time;
-        self.pos.y += self.speed.y * delta_time;
+        self.pos[0] += self.speed[0] * delta_time;
+        self.pos[1] += self.speed[1] * delta_time;
         self.angle += self.angular_velocity * delta_time;
         if self.angle > 2.0 * PI {
             self.angle -= 2.0 * PI;
@@ -293,25 +314,26 @@ impl Player {
             self.angle += 2.0 * PI;
         }
 
-        if self.pos.x < self.min_x {
-            self.pos.x = self.min_x;
-            self.speed.x = -self.speed.x;
-        } else if self.pos.x > self.max_x {
-            self.pos.x = self.max_x;
-            self.speed.x = -self.speed.x;
-        } else if self.pos.y < self.min_y {
-            self.pos.y = self.min_y;
-            self.speed.y = -self.speed.y;
-        } else if self.pos.y > self.max_y {
-            self.pos.y = self.max_y;
-            self.speed.y = -self.speed.y;
+        if self.pos[0] < self.min_x {
+            self.pos[0] = self.min_x;
+            self.speed[0] = -self.speed[0];
+        } else if self.pos[0] > self.max_x {
+            self.pos[0] = self.max_x;
+            self.speed[0] = -self.speed[0];
+        } else if self.pos[1] < self.min_y {
+            self.pos[1] = self.min_y;
+            self.speed[1] = -self.speed[1];
+        } else if self.pos[1] > self.max_y {
+            self.pos[1] = self.max_y;
+            self.speed[1] = -self.speed[1];
         }
 
         self.angular_velocity -= self.angular_friction * self.angular_velocity * delta_time;
-        self.speed -= self.linear_friction * self.speed * delta_time;
+        self.speed[0] -= self.speed[0] * self.linear_friction * delta_time;
+        self.speed[1] -= self.speed[1] * self.linear_friction * delta_time;
     }
 
-    pub fn get_pos(&self) -> Vec2 {
+    pub fn get_pos(&self) -> [f32; 2] {
         self.pos
     }
 

@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 macroquad = "0.4.14"
 game_modes = { path = "../game_modes" }
+clap = { version = "4.5.48", features = ["derive"] }
