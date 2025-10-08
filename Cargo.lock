@@ -101,6 +101,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "game_engine"
+version = "0.1.0"
+dependencies = [
+ "macroquad",
+]
+
+[[package]]
+name = "game_modes"
+version = "0.1.0"
+dependencies = [
+ "game_engine",
+ "game_renderer",
+ "macroquad",
+]
+
+[[package]]
+name = "game_renderer"
+version = "0.1.0"
+dependencies = [
+ "game_engine",
+ "macroquad",
+]
+
+[[package]]
 name = "glam"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -215,6 +239,7 @@ dependencies = [
 name = "pfong"
 version = "0.1.0"
 dependencies = [
+ "game_modes",
  "macroquad",
 ]
 

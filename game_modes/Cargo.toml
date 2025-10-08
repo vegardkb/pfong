@@ -1,0 +1,10 @@
+[package]
+name = "game_modes"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+game_engine = { path = "../game_engine" }
+game_renderer = { path = "../game_renderer" }
+
+macroquad = "0.4.14"
