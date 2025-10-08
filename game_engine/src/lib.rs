@@ -1,6 +1,7 @@
 use macroquad::math::vec2;
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
+use uuid::Uuid;
 
 pub struct GameEngine {
     state: GameState,
@@ -15,6 +16,8 @@ pub struct GameState {
     score: [u32; 2],
     hit_time: f32,
     point_time: f32,
+    elapsed_time: f32,
+    game_uuid: String,
 }
 
 pub struct GameConfig {
@@ -97,15 +100,16 @@ impl GameState {
             score: [0, 0],
             hit_time: 0.0,
             point_time: 0.0,
+            elapsed_time: 0.0,
+            game_uuid: Uuid::new_v4().to_string(),
         }
     }
 
     fn step(&mut self, actions: (Action, Action), delta_time: f32) {
         self.hit_time += delta_time;
         self.point_time += delta_time;
+        self.elapsed_time += delta_time;
 
-        self.player1.input(&actions.0, delta_time);
-        self.player2.input(&actions.1, delta_time);
         if self.hit_time > 0.05
             && (self.ball.check_collision(&mut self.player1)
                 | self.ball.check_collision(&mut self.player2))
@@ -115,6 +119,8 @@ impl GameState {
 
         self.player1.update(delta_time);
         self.player2.update(delta_time);
+        self.player1.input(&actions.0, delta_time);
+        self.player2.input(&actions.1, delta_time);
 
         let wall_hit = self.ball.update(delta_time);
         if self.point_time > 0.1 {

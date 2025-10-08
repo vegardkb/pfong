@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 macroquad = "0.4.14"
 serde = "1.0.228"
+uuid = { version = "1.18.1", features = ["v4"] }
