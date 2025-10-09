@@ -22,6 +22,10 @@ struct Args {
     /// Step time between frames
     #[arg(short, long, default_value_t = 0.1)]
     time_step: f32,
+
+    /// Number of games to play
+    #[arg(short, long, default_value_t = 1)]
+    num_games: u32,
 }
 
 #[macroquad::main(window_conf)]
@@ -30,7 +34,7 @@ async fn main() {
 
     match args.mode.as_str() {
         "interactive" => run_interactive_mode().await,
-        "headless" => run_agent_headless_mode(args.time_step).await,
+        "headless" => run_agent_headless_mode(args.time_step, args.num_games).await,
         _ => panic!("Invalid mode"),
     }
 }

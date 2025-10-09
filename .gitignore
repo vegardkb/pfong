@@ -1,1 +1,4 @@
 /target
+**/**.DS_Store
+rl_py/__pycache__
+rl_py/model_checkpoints

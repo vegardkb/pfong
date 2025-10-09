@@ -256,24 +256,26 @@ pub async fn run_interactive_mode() {
     session.run().await;
 }
 
-pub async fn run_agent_headless_mode(delta_time: f32) {
-    let config = GameConfig::default();
-    let engine = GameEngine::new(config);
-    let agent1 = create_python_agent(1, "ws://localhost:8765").unwrap_or_else(|e| {
-        eprintln!("Failed to connect to Python agent, falling back to heuristic: {e}");
-        Box::new(HeuristicAgent { player_id: 1 })
-    });
-    let agent2 = create_python_agent(2, "ws://localhost:8765").unwrap_or_else(|e| {
-        eprintln!("Failed to connect to Python agent, falling back to heuristic: {e}");
-        Box::new(HeuristicAgent { player_id: 2 })
-    });
-    let step_count = 0;
-    let mut session = GameSession {
-        engine,
-        renderer: HeadlessRenderer::new(),
-        agent1,
-        agent2,
-        step_count,
-    };
-    session.run(delta_time).await;
+pub async fn run_agent_headless_mode(delta_time: f32, num_games: u32) {
+    for _ in 0..num_games {
+        let config = GameConfig::default();
+        let engine = GameEngine::new(config);
+        let agent1 = create_python_agent(1, "ws://localhost:8765").unwrap_or_else(|e| {
+            eprintln!("Failed to connect to Python agent, falling back to heuristic: {e}");
+            Box::new(HeuristicAgent { player_id: 1 })
+        });
+        let agent2 = create_python_agent(2, "ws://localhost:8765").unwrap_or_else(|e| {
+            eprintln!("Failed to connect to Python agent, falling back to heuristic: {e}");
+            Box::new(HeuristicAgent { player_id: 2 })
+        });
+        let step_count = 0;
+        let mut session = GameSession {
+            engine,
+            renderer: HeadlessRenderer::new(),
+            agent1,
+            agent2,
+            step_count,
+        };
+        session.run(delta_time).await;
+    }
 }
