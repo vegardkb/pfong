@@ -22,6 +22,9 @@ async def handle_agent(
                 state = request.get("state", {})
                 player_id = request.get("player_id", 1)
                 state["player_id"] = player_id
+                state["opponent_id"] = request["opponent_id"]
+                state["game_terminated"] = request["game_terminated"]
+                state["evaluation_mode"] = request["evaluation_mode"]
 
                 logger.debug(f"Received request for player {player_id}")
 

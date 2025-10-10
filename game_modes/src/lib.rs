@@ -16,15 +16,30 @@ pub struct GameSession<T: Renderer> {
     step_count: u32,
 }
 
+pub struct SessionMetadata {
+    pub evaluation_mode: bool,
+    pub player1_id: String,
+    pub player2_id: String,
+}
+
 impl GameSession<WindowRenderer> {
-    pub async fn run(&mut self) {
+    pub async fn run(&mut self, evaluation_mode: bool) {
         let start_time = Instant::now();
         let mut step_time = Instant::now();
+
+        let metadata = SessionMetadata {
+            evaluation_mode,
+            player1_id: self.agent1.get_name(),
+            player2_id: self.agent2.get_name(),
+        };
 
         loop {
             let state = self.engine.get_state();
 
-            let actions = (self.agent1.get_action(state), self.agent2.get_action(state));
+            let actions = (
+                self.agent1.get_action(state, &metadata),
+                self.agent2.get_action(state, &metadata),
+            );
 
             self.engine.step(actions, step_time.elapsed().as_secs_f32());
             step_time = Instant::now();
@@ -33,6 +48,10 @@ impl GameSession<WindowRenderer> {
             self.renderer.render(state);
 
             if state.is_terminal() {
+                let _ = (
+                    self.agent1.get_action(state, &metadata),
+                    self.agent2.get_action(state, &metadata),
+                );
                 break;
             }
 
@@ -48,12 +67,22 @@ impl GameSession<WindowRenderer> {
 }
 
 impl GameSession<HeadlessRenderer> {
-    pub async fn run(&mut self, delta_time: f32) {
+    pub async fn run(&mut self, delta_time: f32, evaluation_mode: bool) {
         let start_time = Instant::now();
+
+        let metadata = SessionMetadata {
+            evaluation_mode,
+            player1_id: self.agent1.get_name(),
+            player2_id: self.agent2.get_name(),
+        };
+
         loop {
             let state = self.engine.get_state();
 
-            let actions = (self.agent1.get_action(state), self.agent2.get_action(state));
+            let actions = (
+                self.agent1.get_action(state, &metadata),
+                self.agent2.get_action(state, &metadata),
+            );
 
             self.engine.step(actions, delta_time);
 
@@ -61,6 +90,10 @@ impl GameSession<HeadlessRenderer> {
             self.renderer.render(state);
 
             if state.is_terminal() {
+                let _ = (
+                    self.agent1.get_action(state, &metadata),
+                    self.agent2.get_action(state, &metadata),
+                );
                 break;
             }
 
@@ -76,7 +109,9 @@ impl GameSession<HeadlessRenderer> {
 }
 
 pub trait Agent {
-    fn get_action(&mut self, state: &GameState) -> Action;
+    fn get_action(&mut self, state: &GameState, metadata: &SessionMetadata) -> Action;
+
+    fn get_name(&self) -> String;
 
     // Optional: for agents that need setup/teardown
     fn initialize(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -91,7 +126,7 @@ pub trait Agent {
 struct HumanAgent {}
 
 impl Agent for HumanAgent {
-    fn get_action(&mut self, _state: &GameState) -> Action {
+    fn get_action(&mut self, _state: &GameState, _metadata: &SessionMetadata) -> Action {
         Action {
             left: is_key_down(KeyCode::Left) | is_key_down(KeyCode::A),
             right: is_key_down(KeyCode::Right) | is_key_down(KeyCode::D),
@@ -101,6 +136,29 @@ impl Agent for HumanAgent {
             rotate_right: is_key_down(KeyCode::E),
         }
     }
+
+    fn get_name(&self) -> String {
+        "Human".to_string()
+    }
+}
+
+struct RandomAgent {}
+
+impl Agent for RandomAgent {
+    fn get_action(&mut self, _state: &GameState, _metadata: &SessionMetadata) -> Action {
+        Action {
+            left: rand::random(),
+            right: rand::random(),
+            up: rand::random(),
+            down: rand::random(),
+            rotate_left: rand::random(),
+            rotate_right: rand::random(),
+        }
+    }
+
+    fn get_name(&self) -> String {
+        "Random".to_string()
+    }
 }
 
 struct HeuristicAgent {
@@ -108,7 +166,7 @@ struct HeuristicAgent {
 }
 
 impl Agent for HeuristicAgent {
-    fn get_action(&mut self, state: &GameState) -> Action {
+    fn get_action(&mut self, state: &GameState, _metadata: &SessionMetadata) -> Action {
         let mut down = false;
         let mut up = false;
         let mut pos;
@@ -142,17 +200,45 @@ impl Agent for HeuristicAgent {
             rotate_right: false,
         }
     }
+
+    fn get_name(&self) -> String {
+        "Heuristic".to_string()
+    }
 }
 
 #[derive(Serialize, Deserialize)]
 struct PythonRequest {
-    state: GameState, // You'll need to implement Serialize for GameState
+    state: GameState,
     player_id: u8,
+    evaluation_mode: bool,
+    opponent_id: String,
+    game_terminated: bool,
 }
 
 #[derive(Serialize, Deserialize)]
 struct PythonResponse {
-    action: Action, // You'll need to implement Deserialize for Action
+    action: Action,
+}
+
+pub fn create_agent(player_id: u8, agent_name: String) -> Box<dyn Agent> {
+    match agent_name.as_str() {
+        "Heuristic" => Box::new(HeuristicAgent { player_id }),
+        "Random" => Box::new(RandomAgent {}),
+        "Human" => Box::new(HumanAgent {}),
+        "Python" => {
+            let agent = PythonAgent::new(player_id, "ws://localhost:8765");
+            match agent {
+                Ok(agent) => Box::new(agent),
+                Err(err) => {
+                    eprintln!(
+                        "Failed to connect to Python agent, falling back to heuristic: {err}"
+                    );
+                    Box::new(HeuristicAgent { player_id })
+                }
+            }
+        }
+        _ => panic!("Unknown agent name"),
+    }
 }
 
 pub fn create_python_agent(
@@ -174,11 +260,7 @@ struct PythonAgent {
 
 impl PythonAgent {
     pub fn new(player_id: u8, python_url: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let (socket, response) = connect(python_url).expect("Can't connect");
-
-        println!("Connected to the server");
-        println!("Response HTTP code: {}", response.status());
-        println!("Response contains the following headers:");
+        let (socket, _) = connect(python_url).expect("Can't connect");
 
         Ok(Self {
             player_id,
@@ -189,14 +271,23 @@ impl PythonAgent {
 }
 
 impl Agent for PythonAgent {
-    fn get_action(&mut self, state: &GameState) -> Action {
+    fn get_action(&mut self, state: &GameState, metadata: &SessionMetadata) -> Action {
         if !self.connected {
             return Action::default();
         }
 
+        let opponent_id = if self.player_id == 1 {
+            metadata.player2_id.clone()
+        } else {
+            metadata.player1_id.clone()
+        };
+
         let request = PythonRequest {
             state: state.clone(),
             player_id: self.player_id,
+            opponent_id,
+            evaluation_mode: metadata.evaluation_mode,
+            game_terminated: state.is_terminal(),
         };
 
         let request_json = match serde_json::to_string(&request) {
@@ -234,17 +325,20 @@ impl Agent for PythonAgent {
             }
         }
     }
+
+    fn get_name(&self) -> String {
+        "Python".to_string()
+    }
 }
 
 pub async fn run_interactive_mode() {
     let config = GameConfig::default();
     let engine = GameEngine::new(config);
     let renderer = WindowRenderer::new();
-    let agent1 = Box::new(HumanAgent {});
-    let agent2 = create_python_agent(2, "ws://localhost:8765").unwrap_or_else(|e| {
-        eprintln!("Failed to connect to Python agent, falling back to heuristic: {e}");
-        Box::new(HeuristicAgent { player_id: 2 })
-    });
+
+    let agent1 = create_agent(1, ("Human").to_string());
+    let agent2 = create_agent(2, ("Python").to_string());
+
     let step_count = 0;
     let mut session = GameSession {
         engine,
@@ -253,21 +347,18 @@ pub async fn run_interactive_mode() {
         agent2,
         step_count,
     };
-    session.run().await;
+    let evaluation_mode = true;
+    session.run(evaluation_mode).await;
 }
 
 pub async fn run_agent_headless_mode(delta_time: f32, num_games: u32) {
-    for _ in 0..num_games {
+    for i in 0..num_games {
         let config = GameConfig::default();
         let engine = GameEngine::new(config);
-        let agent1 = create_python_agent(1, "ws://localhost:8765").unwrap_or_else(|e| {
-            eprintln!("Failed to connect to Python agent, falling back to heuristic: {e}");
-            Box::new(HeuristicAgent { player_id: 1 })
-        });
-        let agent2 = create_python_agent(2, "ws://localhost:8765").unwrap_or_else(|e| {
-            eprintln!("Failed to connect to Python agent, falling back to heuristic: {e}");
-            Box::new(HeuristicAgent { player_id: 2 })
-        });
+
+        let agent1 = create_agent(1, ("Python").to_string());
+        let agent2 = create_agent(2, ("Python").to_string());
+
         let step_count = 0;
         let mut session = GameSession {
             engine,
@@ -276,6 +367,69 @@ pub async fn run_agent_headless_mode(delta_time: f32, num_games: u32) {
             agent2,
             step_count,
         };
-        session.run(delta_time).await;
+        let evaluation_mode = false;
+        session.run(delta_time, evaluation_mode).await;
+        println!("Finished session {i}");
+    }
+}
+
+pub async fn run_agent_headless_training_mode(
+    delta_time: f32,
+    num_cycles: u32,
+    num_training: u32,
+    num_evaluation: u32,
+    opponents: &Vec<String>,
+) {
+    for i in 0..num_cycles {
+        println!("Starting training cycle {i}");
+        for j in 0..num_training {
+            println!("Starting training session {j}");
+            let config = GameConfig::default();
+            let engine = GameEngine::new(config);
+
+            let agent1 = create_agent(1, ("Python").to_string());
+            let agent2 = create_agent(2, ("Python").to_string());
+
+            let step_count = 0;
+            let mut session = GameSession {
+                engine,
+                renderer: HeadlessRenderer::new(),
+                agent1,
+                agent2,
+                step_count,
+            };
+            let evaluation_mode = false;
+            session.run(delta_time, evaluation_mode).await;
+        }
+        for opponent in opponents {
+            println!("Starting evaluation session against {opponent}");
+            for j in 0..num_evaluation {
+                println!("Starting evaluation session {j}");
+                for k in 0..2 {
+                    let agent1;
+                    let agent2;
+                    if k == 0 {
+                        agent1 = create_agent(1, ("Python").to_string());
+                        agent2 = create_agent(2, (opponent).to_string());
+                    } else {
+                        agent1 = create_agent(1, (opponent).to_string());
+                        agent2 = create_agent(2, ("Python").to_string());
+                    }
+
+                    let config = GameConfig::default();
+                    let engine = GameEngine::new(config);
+                    let step_count = 0;
+                    let mut session = GameSession {
+                        engine,
+                        renderer: HeadlessRenderer::new(),
+                        agent1,
+                        agent2,
+                        step_count,
+                    };
+                    let evaluation_mode = true;
+                    session.run(delta_time, evaluation_mode).await;
+                }
+            }
+        }
     }
 }

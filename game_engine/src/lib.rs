@@ -124,20 +124,12 @@ impl GameState {
 
         let wall_hit = self.ball.update(delta_time);
         if self.point_time > 0.1 {
-            let point_scored;
             if wall_hit == 1 {
                 self.score[0] += 1;
                 self.point_time = 0.0;
-                point_scored = true;
             } else if wall_hit == 2 {
                 self.score[1] += 1;
                 self.point_time = 0.0;
-                point_scored = true;
-            } else {
-                point_scored = false;
-            }
-            if point_scored {
-                println!("{} - {}", self.score[0], self.score[1]);
             }
         }
     }
@@ -161,6 +153,20 @@ impl GameState {
 
 impl Default for GameConfig {
     fn default() -> Self {
+        let mut speed_x = rand::random::<f32>() + 0.05;
+        let mut speed_y = rand::random::<f32>() + 0.05;
+        speed_x = if rand::random::<bool>() {
+            speed_x
+        } else {
+            -speed_x
+        };
+        speed_y = if rand::random::<bool>() {
+            speed_y
+        } else {
+            -speed_y
+        };
+        let speed = [speed_x, speed_y];
+
         GameConfig {
             player_width: 0.01,
             player_height: 0.15,
@@ -170,7 +176,7 @@ impl Default for GameConfig {
             player_angular_friction: 0.4,
             player_mass: 2.0,
             ball_radius: 0.01,
-            ball_speed: [0.1, 0.01],
+            ball_speed: speed,
             ball_mass: 1.0,
         }
     }

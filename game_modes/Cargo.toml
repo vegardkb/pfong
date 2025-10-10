@@ -8,6 +8,7 @@ game_engine = { path = "../game_engine" }
 game_renderer = { path = "../game_renderer" }
 
 macroquad = "0.4.14"
+rand = "0.9.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 tungstenite = "0.28.0"

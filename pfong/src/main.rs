@@ -1,5 +1,5 @@
 use clap::Parser;
-use game_modes::{run_agent_headless_mode, run_interactive_mode};
+use game_modes::{run_agent_headless_mode, run_agent_headless_training_mode, run_interactive_mode};
 use macroquad::prelude::*;
 
 fn window_conf() -> Conf {
@@ -20,21 +20,44 @@ struct Args {
     mode: String,
 
     /// Step time between frames
-    #[arg(short, long, default_value_t = 0.1)]
+    #[arg(short, long, default_value_t = 0.05)]
     time_step: f32,
 
     /// Number of games to play
-    #[arg(short, long, default_value_t = 1)]
+    #[arg(long, default_value_t = 1)]
     num_games: u32,
+
+    /// Number of cycles to train for
+    #[arg(long, default_value_t = 1000)]
+    num_cycles: u32,
+
+    /// Number of training games to play
+    #[arg(long, default_value_t = 2)]
+    num_training: u32,
+
+    /// Number of validation games to play
+    #[arg(long, default_value_t = 1)]
+    num_validation: u32,
 }
 
 #[macroquad::main(window_conf)]
 async fn main() {
     let args = Args::parse();
 
+    let opponents = vec!["Random".to_string()];
     match args.mode.as_str() {
         "interactive" => run_interactive_mode().await,
         "headless" => run_agent_headless_mode(args.time_step, args.num_games).await,
+        "training" => {
+            run_agent_headless_training_mode(
+                args.time_step,
+                args.num_cycles,
+                args.num_training,
+                args.num_validation,
+                &opponents,
+            )
+            .await
+        }
         _ => panic!("Invalid mode"),
     }
 }
