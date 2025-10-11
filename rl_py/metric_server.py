@@ -117,7 +117,7 @@ DASHBOARD_HTML = """
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
-        .container { max-width: 1200px; margin: 0 auto; }
+        .container { max-width: 1400px; margin: 0 auto; }
         .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
         .chart-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .summary { background: white; padding: 20px; margin-bottom: 20px; border-radius: 8px; }
@@ -155,6 +155,22 @@ DASHBOARD_HTML = """
             <div class="chart-container">
                 <h3>Recent Performance</h3>
                 <canvas id="performanceChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <h3>Reward</h3>
+                <canvas id="rewardChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <h3>Epsilon</h3>
+                <canvas id="epsilonChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <h3>Q-Value</h3>
+                <canvas id="qValueChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <h3>Action Rate</h3>
+                <canvas id="actionRateChart"></canvas>
             </div>
         </div>
     </div>
@@ -197,10 +213,15 @@ DASHBOARD_HTML = """
         }
 
         function updateCharts(data) {
+            console.log(data)
             updateWinRateChart(data.game_results);
             updateGoalDiffChart(data.game_results);
             updateLossChart(data.training_metrics);
             updatePerformanceChart(data.game_results);
+            updateRewardChart(data.training_metrics);
+            updateQChart(data.training_metrics);
+            updateEpsilonChart(data.training_metrics);
+            updateActionRateChart(data.training_metrics);
         }
 
         function updateWinRateChart(gameResults) {
@@ -346,6 +367,174 @@ DASHBOARD_HTML = """
             }
         }
 
+        function updateActionRateChart(trainingMetrics) {
+            const ctx = document.getElementById('actionRateChart').getContext('2d');
+
+            if (trainingMetrics.length === 0) return;
+
+            // Filter metrics that have action_rate data
+            const validMetrics = trainingMetrics.filter(m => m.action_rate !== undefined);
+
+            if (validMetrics.length === 0) return;
+
+            // Get all unique action names across all metrics
+            const allActions = new Set();
+            validMetrics.forEach(metric => {
+                if (metric.action_rate) {
+                    Object.keys(metric.action_rate).forEach(action => allActions.add(action));
+                }
+            });
+
+            const actionNames = Array.from(allActions).sort();
+
+            // Generate distinct colors for each action
+            const actionColors = generateActionColors(actionNames.length);
+
+            // Create datasets for each action with moving average
+            const datasets = actionNames.map((actionName, index) => {
+                const rawActionData = validMetrics
+                    .filter(m => m.action_rate && m.action_rate[actionName] !== undefined)
+                    .map(m => ({
+                        x: m.training_step,
+                        y: parseFloat(m.action_rate[actionName]) * 100 // Convert to percentage
+                    }));
+
+                // Apply moving average (window of 1000 steps or available data points)
+                const smoothedData = applySimpleMovingAverage(rawActionData, 10);
+
+                // Format action name for display
+                const displayName = formatActionName(actionName);
+
+                return {
+                    label: displayName,
+                    data: smoothedData,
+                    borderColor: actionColors[index],
+                    backgroundColor: actionColors[index] + '20',
+                    borderWidth: 1,
+                    pointRadius: 0,
+                    tension: 0.1
+                };
+            });
+
+            if (charts.actionRateChart) {
+                charts.actionRateChart.data.datasets = datasets;
+                charts.actionRateChart.update('none');
+            } else {
+                charts.actionRateChart = new Chart(ctx, {
+                    type: 'line',
+                    data: { datasets },
+                    options: {
+                        scales: {
+                            y: {
+                                title: { display: true, text: 'Action Rate (%)' },
+                                min: 0,
+                                max: 100,
+                                ticks: {
+                                    callback: function(value) {
+                                        return value + '%';
+                                    }
+                                }
+                            },
+                            x: {
+                                title: { display: true, text: 'Training Step' },
+                                type: 'linear'
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'right',
+                                labels: {
+                                    boxWidth: 7,
+                                    font: {
+                                        size: 6
+                                    },
+                                    filter: function(legendItem, chartData) {
+                                        const lastData = chartData.datasets[legendItem.datasetIndex].data;
+                                        if (lastData.length === 0) return false;
+                                        return lastData[lastData.length - 1].y > 1;
+                                    }
+                                }
+                            },
+                            tooltip: {
+                                mode: 'nearest',
+                                intersect: false,
+                                callbacks: {
+                                    label: function(context) {
+                                        return `${context.dataset.label}: ${context.parsed.y.toFixed(1)}%`;
+                                    }
+                                }
+                            }
+                        },
+                        interaction: {
+                            mode: 'nearest',
+                            axis: 'x',
+                            intersect: false
+                        },
+                        elements: {
+                            line: {
+                                borderWidth: 1
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        // Helper function to format action names
+        function formatActionName(actionName) {
+            if (actionName === 'none_none_none') {
+                return 'no_action';
+            }
+
+            // Split by underscore, remove "none" parts, then rejoin
+            const parts = actionName.split('_');
+            const filteredParts = parts.filter(part => part !== 'none');
+
+            if (filteredParts.length === 0) {
+                return 'no_action';
+            }
+
+            return filteredParts.join('_');
+        }
+
+
+        // Alternative simpler moving average (if you prefer trailing window)
+        function applySimpleMovingAverage(data, windowSize) {
+            if (data.length === 0) return [];
+
+            const smoothed = [];
+
+            for (let i = 0; i < data.length; i++) {
+                const current_step = data[i].x;
+                const window_start = Math.max(0, i - windowSize);
+                const window = data.slice(window_start, i + 1);
+
+                const sum = window.reduce((acc, point) => acc + point.y, 0);
+                const average = sum / window.length;
+
+                smoothed.push({
+                    x: current_step,
+                    y: average
+                });
+            }
+
+            return smoothed;
+        }
+
+        // Helper function to generate distinct colors for actions
+        function generateActionColors(count) {
+            const colors = [];
+            const hueStep = 360 / count;
+
+            for (let i = 0; i < count; i++) {
+                const hue = (i * hueStep) % 360;
+                colors.push(`hsl(${hue}, 70%, 50%)`);
+            }
+
+            return colors;
+        }
+
         function updatePerformanceChart(gameResults) {
             const ctx = document.getElementById('performanceChart').getContext('2d');
 
@@ -411,6 +600,209 @@ DASHBOARD_HTML = """
             }
         }
 
+        function updateRewardChart(trainingMetrics) {
+            const ctx = document.getElementById('rewardChart').getContext('2d');
+
+            if (trainingMetrics.length === 0) return;
+
+            const rewardData = trainingMetrics
+                .filter(m => m.reward !== undefined)
+                .map(m => ({x: m.training_step, y: m.reward}));
+
+            if (charts.rewardChart) {
+                charts.rewardChart.data.datasets[0].data = rewardData;
+                charts.rewardChart.update('none');
+            } else {
+                charts.rewardChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        datasets: [{
+                            label: 'Reward',
+                            data: rewardData,
+                            borderColor: 'rgb(75, 192, 192)',
+                            backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                            borderWidth: 1,
+                            pointRadius: 0,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        scales: {
+                            y: {
+                                title: { display: true, text: 'Reward' }
+                            },
+                            x: {
+                                title: { display: true, text: 'Training Step' },
+                                type: 'linear'
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        function updateQChart(trainingMetrics) {
+            const ctx = document.getElementById('qValueChart').getContext('2d');
+
+            if (trainingMetrics.length === 0) return;
+
+            // Filter metrics that have both q_value and q_std
+            const validMetrics = trainingMetrics.filter(m => m.q_value !== undefined && m.q_std !== undefined);
+
+            if (validMetrics.length === 0) return;
+
+            const qValueData = validMetrics.map(m => ({x: m.training_step, y: m.q_value}));
+
+            // Create upper and lower bounds for the confidence interval
+            const upperBoundData = validMetrics.map(m => ({
+                x: m.training_step,
+                y: m.q_value + m.q_std
+            }));
+
+            const lowerBoundData = validMetrics.map(m => ({
+                x: m.training_step,
+                y: m.q_value - m.q_std
+            }));
+
+            if (charts.qValueChart) {
+                charts.qValueChart.data.datasets = [
+                    {
+                        label: 'Q-Value Mean',
+                        data: qValueData,
+                        borderColor: 'rgb(153, 102, 255)',
+                        backgroundColor: 'rgba(153, 102, 255, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: false
+                    },
+                    {
+                        label: 'Q-Value ±1σ',
+                        data: upperBoundData,
+                        borderColor: 'rgba(153, 102, 255, 0.3)',
+                        backgroundColor: 'rgba(153, 102, 255, 0.1)',
+                        borderWidth: 1,
+                        pointRadius: 0,
+                        fill: '+1',
+                        tension: 0.1
+                    },
+                    {
+                        label: '',
+                        data: lowerBoundData,
+                        borderColor: 'rgba(153, 102, 255, 0.3)',
+                        backgroundColor: 'rgba(153, 102, 255, 0.1)',
+                        borderWidth: 1,
+                        pointRadius: 0,
+                        fill: false,
+                        tension: 0.1
+                    }
+                ];
+                charts.qValueChart.update('none');
+            } else {
+                charts.qValueChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        datasets: [
+                            {
+                                label: 'Q-Value Mean',
+                                data: qValueData,
+                                borderColor: 'rgb(153, 102, 255)',
+                                backgroundColor: 'rgba(153, 102, 255, 0.1)',
+                                borderWidth: 2,
+                                pointRadius: 0,
+                                fill: false
+                            },
+                            {
+                                label: 'Q-Value ±1σ',
+                                data: upperBoundData,
+                                borderColor: 'rgba(153, 102, 255, 0.3)',
+                                backgroundColor: 'rgba(153, 102, 255, 0.1)',
+                                borderWidth: 1,
+                                pointRadius: 0,
+                                fill: '+1',
+                                tension: 0.1
+                            },
+                            {
+                                label: '',
+                                data: lowerBoundData,
+                                borderColor: 'rgba(153, 102, 255, 0.3)',
+                                backgroundColor: 'rgba(153, 102, 255, 0.1)',
+                                borderWidth: 1,
+                                pointRadius: 0,
+                                fill: false,
+                                tension: 0.1
+                            }
+                        ]
+                    },
+                    options: {
+                        scales: {
+                            y: {
+                                title: { display: true, text: 'Q-Value' }
+                            },
+                            x: {
+                                title: { display: true, text: 'Training Step' },
+                                type: 'linear'
+                            }
+                        },
+                        plugins: {
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        if (context.datasetIndex === 0) {
+                                            const metric = validMetrics.find(m => m.training_step === context.parsed.x);
+                                            return `Q-Value: ${context.parsed.y.toFixed(3)} ± ${metric.q_std.toFixed(3)}`;
+                                        }
+                                        return null;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        function updateEpsilonChart(trainingMetrics) {
+            const ctx = document.getElementById('epsilonChart').getContext('2d');
+
+            if (trainingMetrics.length === 0) return;
+
+            const epsilonData = trainingMetrics
+                .filter(m => m.epsilon !== undefined)
+                .map(m => ({x: m.training_step, y: m.epsilon}));
+
+            if (charts.epsilonChart) {
+                charts.epsilonChart.data.datasets[0].data = epsilonData;
+                charts.epsilonChart.update('none');
+            } else {
+                charts.epsilonChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        datasets: [{
+                            label: 'Epsilon',
+                            data: epsilonData,
+                            borderColor: 'rgb(255, 159, 64)',
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        scales: {
+                            y: {
+                                title: { display: true, text: 'Epsilon' },
+                                min: 0,
+                                max: 1
+                            },
+                            x: {
+                                title: { display: true, text: 'Training Step' },
+                                type: 'linear'
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
         // Auto-refresh every 5 seconds
         setInterval(() => {
             if (autoRefresh) {
@@ -446,7 +838,16 @@ if __name__ == "__main__":
         )
 
         if step % 10 == 0:
-            metrics.record_metrics({"loss": random.expovariate(1.0)}, step)
+            # Simulate training metrics with Q-value, reward, and epsilon
+            metrics.record_metrics(
+                {
+                    "loss": random.expovariate(1.0),
+                    "reward": random.uniform(-1, 1),
+                    "q_value": random.uniform(0, 10),
+                    "epsilon": max(0.01, 1.0 - step / 1000),  # Decaying epsilon
+                },
+                step,
+            )
 
     print("Test data generated. Dashboard should be running...")
     input("Press Enter to exit...")

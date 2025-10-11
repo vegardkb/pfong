@@ -5,10 +5,14 @@ TEST_STATE = {
     "player1": {
         "pos": [0.0, 0.0],
         "speed": [1.0, 1.0],
+        "angle": 1.0,
+        "angular_velocity": 1.0,
     },
     "player2": {
         "pos": [1.0, 1.0],
         "speed": [1.0, 1.0],
+        "angle": 1.0,
+        "angular_velocity": 1.0,
     },
     "ball": {
         "pos": [0.5, 0.5],
@@ -18,6 +22,11 @@ TEST_STATE = {
     "elapsed_time": 60.0,
     "player_id": 1,
     "game_uuid": "id",
+    "evaluation_mode": False,
+    "opponent_id": "random",
+    "game_terminated": False,
+    "point_scored": 0,
+    "ball_hit": 0,
 }
 
 

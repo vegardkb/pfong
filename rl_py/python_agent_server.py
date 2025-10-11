@@ -6,24 +6,23 @@ from typing import final, Any
 import logging
 import torch
 import torch.nn.functional as F
-import math
 import random
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
-N_FEATURES = 16
-N_ACTIONS = 7
-MEMORY_SIZE = 100000
-BATCH_SIZE = 256
-UPDATE_INTERVAL = 1000
-LR = 0.0005
+N_FEATURES = 18
+N_ACTIONS = 27
+MEMORY_SIZE = 50000
+BATCH_SIZE = 512
+UPDATE_INTERVAL = 1500
+LR = 0.0001
 SAVE_INTERVAL = 100000
 GAMMA = 0.99
 EPSILON_START = 1.0
 EPSILON_END = 0.1
-EPSILON_DECAY = 0.999995
-LOSS_BUFFER_SIZE = 1000
+EPSILON_DECAY = 0.99998
+METRIC_BUFFER_SIZE = 100
 
 
 @final
@@ -54,7 +53,15 @@ class PythonAgentServer:
         self.train_mode = training_mode
 
         self.active_evaluation_games = {}
-        self.loss_buffer = np.zeros(LOSS_BUFFER_SIZE)
+        action_counts_dict: dict[str, int] = {}
+        self.metric_buffers = {
+            "loss": np.zeros(METRIC_BUFFER_SIZE),
+            "reward": np.zeros(METRIC_BUFFER_SIZE),
+            "epsilon": np.zeros(METRIC_BUFFER_SIZE),
+            "q_value": np.zeros(METRIC_BUFFER_SIZE),
+            "q_std": np.zeros(METRIC_BUFFER_SIZE),
+            "action_counts": action_counts_dict,
+        }
 
         self.epsilon = EPSILON_START
 
@@ -96,23 +103,39 @@ class PythonAgentServer:
             del self.active_evaluation_games[game_uuid]
 
         # Process reward and features
-        reward = calculate_reward(state, player_id)
         state_tensor = torch.tensor(
             state_to_features(state, player_id), dtype=torch.float32
         )
 
         # Select action
+        with torch.no_grad():
+            output = self.policy_net(state_tensor.unsqueeze(0).to(self.device))
+
+        action_probs = torch.softmax(output, dim=1)
+        action_idx = torch.argmax(action_probs).item()
+        policy_action, policy_action_str = index_to_action(action_idx, player_id)
+
         if self.train_mode and not evaluation_mode and random.random() < self.epsilon:
             action_idx = random.randint(0, N_ACTIONS - 1)
+            action, _ = index_to_action(action_idx, player_id)
         else:
-            with torch.no_grad():
-                output = self.policy_net(state_tensor.unsqueeze(0).to(self.device))
-
-            action_probs = torch.softmax(output, dim=1)
-            action_idx = torch.argmax(action_probs).item()
+            action = policy_action
 
         # Save episode and update training parameters
         if self.train_mode and not evaluation_mode:
+            reward = calculate_reward(state, player_id)
+
+            self.metric_buffers["epsilon"][self.steps % METRIC_BUFFER_SIZE] = (
+                self.epsilon
+            )
+            self.metric_buffers["reward"][self.steps % METRIC_BUFFER_SIZE] = reward
+            self.metric_buffers["q_value"][self.steps % METRIC_BUFFER_SIZE] = (
+                output.max().item()
+            )
+            if policy_action_str not in self.metric_buffers["action_counts"]:
+                self.metric_buffers["action_counts"][policy_action_str] = 0
+            self.metric_buffers["action_counts"][policy_action_str] += 1
+
             if game_uuid in self.last_state_dict:
                 episode = Episode(
                     self.last_state_dict[game_uuid]["state"],
@@ -125,13 +148,14 @@ class PythonAgentServer:
             self.last_state_dict[game_uuid] = {
                 "state": state_tensor,
                 "action": action_idx,
+                "reward": reward,
             }
 
             self.epsilon = max(EPSILON_END, self.epsilon * EPSILON_DECAY)
 
             self.steps += 1
 
-        return index_to_action(action_idx, player_id)
+        return action
 
     def train(self):
         if not self.train_mode:
@@ -150,17 +174,40 @@ class PythonAgentServer:
         q_values = (
             self.policy_net(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(1)
         )
-        next_q_values = self.target_net(next_state_batch).max(1)[0]
-        target_q_values = reward_batch + GAMMA * next_q_values
+
+        with torch.no_grad():
+            next_actions = self.policy_net(next_state_batch).max(1)[1]
+            next_q_values = (
+                self.target_net(next_state_batch)
+                .gather(1, next_actions.unsqueeze(1))
+                .squeeze(1)
+            )
+            target_q_values = reward_batch + GAMMA * next_q_values
+            target_q_values = torch.clamp(target_q_values, -20.0, 20.0)
 
         loss = F.mse_loss(q_values, target_q_values)
-        self.loss_buffer[self.steps % LOSS_BUFFER_SIZE] = loss.item()
-        if self.steps % LOSS_BUFFER_SIZE == 0 and self.steps > 0:
+
+        self.metric_buffers["loss"][self.steps % METRIC_BUFFER_SIZE] = loss.item()
+        if self.steps % METRIC_BUFFER_SIZE == 0 and self.steps > 0:
             self.metric_server.record_metrics(
-                {"loss": self.loss_buffer.mean()}, self.steps
+                {
+                    "loss": self.metric_buffers["loss"].mean(),
+                    "epsilon": self.metric_buffers["epsilon"].mean(),
+                    "reward": self.metric_buffers["reward"].mean(),
+                    "q_value": self.metric_buffers["q_value"].mean(),
+                    "q_std": self.metric_buffers["q_value"].std(),
+                    "action_rate": {
+                        k: float(v) / METRIC_BUFFER_SIZE
+                        for k, v in self.metric_buffers["action_counts"].items()
+                    },
+                },
+                self.steps,
             )
+            for k, v in self.metric_buffers["action_counts"].items():
+                self.metric_buffers["action_counts"][k] = 0
         self.optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), max_norm=1.0)
         self.optimizer.step()
 
         if self.steps % SAVE_INTERVAL == 0:
@@ -177,17 +224,29 @@ class PythonAgentServer:
 
 
 def calculate_reward(state: dict[str, Any], player_id: int) -> float:
-    reward = 0.0
-    if player_id == 1:
-        reward += 10.0 * state["score"][0]
-        reward -= 10.0 * state["score"][1]
-        reward += 0.1 * state["ball"]["speed"][0]
-    else:
-        reward -= 10.0 * state["score"][0]
-        reward += 10.0 * state["score"][1]
-        reward -= 0.1 * state["ball"]["speed"][0]
+    score_factor = 10.0
+    ball_proximity_factor = 1.0
+    ball_hit_reward = 2.0
 
-    reward -= 0.01 * state["elapsed_time"]
+    opponent_id = 3 - player_id  # More reliable: 2 if player_id=1, 1 if player_id=2
+
+    reward: float = 0.0
+
+    # Scoring rewards (sparse but important)
+    if state["point_scored"] == player_id:
+        reward += score_factor
+    elif state["point_scored"] == opponent_id:
+        reward -= score_factor
+
+    # Proximity to ball (dense reward)
+    # ball_pos = np.array(state["ball"]["pos"])
+    # player_pos = np.array(state[f"player{player_id}"]["pos"])
+    # distance_to_ball = np.linalg.norm(ball_pos - player_pos)
+    # reward += ball_proximity_factor / (1.0 + distance_to_ball)  # Closer = better
+
+    # Reward for hitting the ball
+    # if state["ball_hit"] == player_id:
+    #    reward += ball_hit_reward
 
     return reward
 
@@ -220,7 +279,8 @@ def state_to_features(state: dict[str, Any], player_id: int) -> list[float]:
                     rotation = -rotation
                     angle = -angle
                 features.append(rotation)
-                features.append(angle % (2 * math.pi))
+                features.append(np.sin(angle))
+                features.append(np.cos(angle))
 
         return features
 
@@ -230,19 +290,29 @@ def state_to_features(state: dict[str, Any], player_id: int) -> list[float]:
         return [0.0] * N_FEATURES
 
 
-def index_to_action(index: int, player_id: int) -> dict[str, bool]:
-    directions = ["left", "right", "up", "down", "rotate_left", "rotate_right"]
-    directions_alt = ["right", "left", "up", "down", "rotate_right", "rotate_left"]
+def index_to_action(index: int, player_id: int) -> tuple[dict[str, bool], str]:
+    lr = ["left", "none", "right"] if player_id == 1 else ["right", "none", "left"]
+    ud = ["up", "none", "down"]
+    rot = (
+        ["rotate_left", "none", "rotate_right"]
+        if player_id == 1
+        else ["rotate_right", "none", "rotate_left"]
+    )
+
+    action_strs: list[str] = []
+    for horizontal in lr:
+        for vertical in ud:
+            for rotation in rot:
+                action_strs.append(f"{horizontal}_{vertical}_{rotation}")
 
     action = default_action()
 
-    if index > 0:
-        if player_id == 1:
-            action[directions[index - 1]] = True
-        else:
-            action[directions_alt[index - 1]] = True
+    action_str = action_strs[index]
 
-    return action
+    for direction in action.keys():
+        action[direction] = direction in action_str
+
+    return action, action_str
 
 
 def default_action() -> dict[str, bool]:

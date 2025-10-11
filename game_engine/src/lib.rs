@@ -14,6 +14,8 @@ pub struct GameState {
     player2: Player,
     ball: Ball,
     score: [u32; 2],
+    ball_hit: u8,
+    point_scored: u8,
     hit_time: f32,
     point_time: f32,
     elapsed_time: f32,
@@ -98,6 +100,8 @@ impl GameState {
             player2: Player::new(config, 2),
             ball: Ball::new(config),
             score: [0, 0],
+            ball_hit: 0,
+            point_scored: 0,
             hit_time: 0.0,
             point_time: 0.0,
             elapsed_time: 0.0,
@@ -106,30 +110,52 @@ impl GameState {
     }
 
     fn step(&mut self, actions: (Action, Action), delta_time: f32) {
-        self.hit_time += delta_time;
-        self.point_time += delta_time;
-        self.elapsed_time += delta_time;
+        self.step_timers(delta_time);
 
-        if self.hit_time > 0.05
-            && (self.ball.check_collision(&mut self.player1)
-                | self.ball.check_collision(&mut self.player2))
-        {
-            self.hit_time = 0.0;
-        }
+        self.ball_hit = 0;
+        self.point_scored = 0;
+
+        self.check_ball_collision();
 
         self.player1.update(delta_time);
         self.player2.update(delta_time);
         self.player1.input(&actions.0, delta_time);
         self.player2.input(&actions.1, delta_time);
 
+        self.check_ball_collision();
+
         let wall_hit = self.ball.update(delta_time);
-        if self.point_time > 0.1 {
+        self.handle_wall_hit(wall_hit);
+    }
+
+    fn step_timers(&mut self, delta_time: f32) {
+        self.hit_time += delta_time;
+        self.point_time += delta_time;
+        self.elapsed_time += delta_time;
+    }
+
+    fn check_ball_collision(&mut self) {
+        if self.hit_time > 0.05 {
+            if self.ball.check_collision(&mut self.player1) {
+                self.ball_hit = 1;
+                self.hit_time = 0.0;
+            } else if self.ball.check_collision(&mut self.player2) {
+                self.ball_hit = 2;
+                self.hit_time = 0.0;
+            }
+        }
+    }
+
+    fn handle_wall_hit(&mut self, wall_hit: u8) {
+        if self.point_time > 0.05 {
             if wall_hit == 1 {
                 self.score[0] += 1;
                 self.point_time = 0.0;
+                self.point_scored = 1;
             } else if wall_hit == 2 {
                 self.score[1] += 1;
                 self.point_time = 0.0;
+                self.point_scored = 2;
             }
         }
     }
@@ -153,8 +179,8 @@ impl GameState {
 
 impl Default for GameConfig {
     fn default() -> Self {
-        let mut speed_x = rand::random::<f32>() + 0.05;
-        let mut speed_y = rand::random::<f32>() + 0.05;
+        let mut speed_x = rand::random::<f32>() / 2.0 + 0.02;
+        let mut speed_y = rand::random::<f32>() / 2.0 + 0.02;
         speed_x = if rand::random::<bool>() {
             speed_x
         } else {
