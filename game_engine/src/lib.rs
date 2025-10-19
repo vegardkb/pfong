@@ -16,6 +16,7 @@ pub struct GameState {
     score: [u32; 2],
     ball_hit: u8,
     point_scored: u8,
+    last_point_scored: u8,
     hit_time: f32,
     point_time: f32,
     elapsed_time: f32,
@@ -99,6 +100,7 @@ impl GameState {
             score: [0, 0],
             ball_hit: 0,
             point_scored: 0,
+            last_point_scored: 0,
             hit_time: 0.0,
             point_time: 0.0,
             elapsed_time: 0.0,
@@ -149,10 +151,12 @@ impl GameState {
                 self.score[0] += 1;
                 self.point_time = 0.0;
                 self.point_scored = 1;
+                self.last_point_scored = 1;
             } else if wall_hit == 2 {
                 self.score[1] += 1;
                 self.point_time = 0.0;
                 self.point_scored = 2;
+                self.last_point_scored = 2;
             }
         }
     }
@@ -171,6 +175,18 @@ impl GameState {
 
     pub fn get_ball(&self) -> &Ball {
         &self.ball
+    }
+
+    pub fn get_score(&self) -> &[u32; 2] {
+        &self.score
+    }
+
+    pub fn get_last_point_scored(&self) -> u8 {
+        self.last_point_scored
+    }
+
+    pub fn get_point_time(&self) -> f32 {
+        self.point_time
     }
 }
 
@@ -192,11 +208,11 @@ impl Default for GameConfig {
 
         GameConfig {
             player_width: 0.01,
-            player_height: 0.15,
-            player_linear_acc: 0.7,
-            player_linear_friction: 0.4,
+            player_height: 0.10,
+            player_linear_acc: 1.0,
+            player_linear_friction: 0.3,
             player_angular_acc: 10.0,
-            player_angular_friction: 0.4,
+            player_angular_friction: 0.3,
             player_mass: 2.0,
             ball_radius: 0.01,
             ball_speed: speed,
@@ -267,7 +283,7 @@ impl Ball {
 
             let v_rel = ball_speed - v_c;
 
-            let i = player.mass * player.height * player.height / 12.0;
+            let i = player.calc_moment_of_inertia();
             let j = -2.0 * v_rel.dot(n) / (1.0 / self.mass + 1.0 / player.mass + (d * d) / i);
 
             ball_speed += j * n / self.mass;
@@ -280,13 +296,18 @@ impl Ball {
         }
         out
     }
+
+    pub fn calc_energy(&self) -> f32 {
+        self.mass * self.speed[0] * self.speed[0] / 2.0
+            + self.mass * self.speed[1] * self.speed[1] / 2.0
+    }
 }
 
 impl Player {
     fn new(config: &GameConfig, player_id: u32) -> Self {
         let xpos = if player_id == 1 { 0.8 } else { 0.2 };
-        let min_x = if player_id == 1 { 0.6 } else { 0.0 };
-        let max_x = if player_id == 1 { 1.0 } else { 0.4 };
+        let min_x = if player_id == 1 { 0.67 } else { 0.0 };
+        let max_x = if player_id == 1 { 1.0 } else { 0.33 };
         let min_y = 0.0;
         let max_y = 1.0;
 
@@ -358,5 +379,15 @@ impl Player {
         self.angular_velocity -= self.angular_friction * self.angular_velocity * delta_time;
         self.speed[0] -= self.speed[0] * self.linear_friction * delta_time;
         self.speed[1] -= self.speed[1] * self.linear_friction * delta_time;
+    }
+
+    fn calc_moment_of_inertia(&self) -> f32 {
+        self.mass * self.height * self.height / 12.0
+    }
+
+    pub fn calc_energy(&self) -> f32 {
+        self.mass * self.speed[0] * self.speed[0] / 2.0
+            + self.mass * self.speed[1] * self.speed[1] / 2.0
+            + self.calc_moment_of_inertia() * self.angular_velocity * self.angular_velocity / 2.0
     }
 }

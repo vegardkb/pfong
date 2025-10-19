@@ -140,21 +140,27 @@ fn calculate_time_to_collision_x(
     }
 }
 
-fn calculate_position_at_time(
+fn calculate_state_at_time(
     pos: [f32; 2],
     speed: [f32; 2],
     linear_friction: f32,
     t: f32,
     x_max: f32,
-) -> [f32; 2] {
+) -> ([f32; 2], [f32; 2]) {
     let mut x;
     let mut y;
+    let mut vx;
+    let mut vy;
     if linear_friction < 0.001 {
         x = pos[0] + speed[0] * t;
         y = pos[1] + speed[1] * t;
+        vx = speed[0];
+        vy = speed[1];
     } else {
         x = pos[0] + speed[0] / linear_friction * (1.0 - (-1.0 * linear_friction * t).exp());
         y = pos[1] + speed[1] / linear_friction * (1.0 - (-1.0 * linear_friction * t).exp());
+        vx = speed[0] * (-1.0 * linear_friction * t).exp();
+        vy = speed[1] * (-1.0 * linear_friction * t).exp();
     }
     while x > 2.0 * x_max || x < 0.0 {
         if x > 2.0 * x_max {
@@ -172,11 +178,13 @@ fn calculate_position_at_time(
     }
     if x > x_max {
         x = 2.0 * x_max - x;
+        vx = -vx;
     }
     if y > 1.0 {
         y = 2.0 - y;
+        vy = -vy;
     }
-    [x, y]
+    ([x, y], [vx, vy])
 }
 
 fn calculate_angle_and_velocity_at_time(
@@ -306,16 +314,16 @@ impl Agent for HeuristicAgent {
         // Simulate ball and player movement
         let time_to_ball = calculate_time_to_collision_x(ball_pos, ball_speed, 0.0, 0.1);
 
-        let player_pos_forecast = if time_to_ball.is_finite() {
-            calculate_position_at_time(pos, speed, linear_friction, time_to_ball, x_max)
+        let (player_pos_forecast, player_speed_forecast) = if time_to_ball.is_finite() {
+            calculate_state_at_time(pos, speed, linear_friction, time_to_ball, x_max)
         } else {
-            pos
+            (pos, speed)
         };
 
-        let ball_pos_forecast = if time_to_ball.is_finite() {
-            calculate_position_at_time(ball_pos, ball_speed, 0.0, time_to_ball, 1.0)
+        let (ball_pos_forecast, ball_speed_forecast) = if time_to_ball.is_finite() {
+            calculate_state_at_time(ball_pos, ball_speed, 0.0, time_to_ball, 1.0)
         } else {
-            ball_pos
+            (ball_pos, ball_speed)
         };
 
         let error_x = ball_pos_forecast[0] - player_pos_forecast[0];
@@ -323,11 +331,11 @@ impl Agent for HeuristicAgent {
 
         // Select side to aim for
         let target_angle = 0.0;
-        let target_angular_vel = if error_y > 0.0 {
-            error_y -= player.height / 4.0;
+        let target_angular_vel = if ball_speed_forecast[1] < 0.0 {
+            error_y -= player.height / 3.0;
             PI
         } else {
-            error_y += player.height / 4.0;
+            error_y += player.height / 3.0;
             -PI
         };
 
@@ -499,12 +507,12 @@ impl Agent for PythonAgent {
     }
 }
 
-pub async fn run_interactive_mode(opponent: String) {
+pub async fn run_interactive_mode(player: String, opponent: String) {
     let config = GameConfig::default();
     let engine = GameEngine::new(config);
     let renderer = WindowRenderer::new();
 
-    let agent1 = create_agent(1, ("Human").to_string());
+    let agent1 = create_agent(1, player);
     let agent2 = create_agent(2, opponent);
 
     let step_count = 0;

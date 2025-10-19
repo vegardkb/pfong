@@ -6,8 +6,8 @@ fn window_conf() -> Conf {
     Conf {
         window_title: "pfong".to_owned(),
         fullscreen: false,
-        window_height: 800,
-        window_width: 800,
+        window_height: 1000,
+        window_width: 1000,
         ..Default::default()
     }
 }
@@ -18,6 +18,10 @@ struct Args {
     /// Game mode
     #[arg(short, long, default_value_t = ("interactive").to_string())]
     mode: String,
+
+    /// Player name
+    #[arg(short, long, default_value_t = ("Human").to_string())]
+    player: String,
 
     /// Opponent name
     #[arg(short, long, default_value_t = ("Python").to_string())]
@@ -58,7 +62,7 @@ async fn main() {
 
     let opponents = vec!["Random".to_string()];
     match args.mode.as_str() {
-        "interactive" => run_interactive_mode(args.opponent).await,
+        "interactive" => run_interactive_mode(args.player, args.opponent).await,
         "headless" => run_agent_headless_mode(args.time_step, args.num_games).await,
         "training" => {
             run_agent_headless_training_mode(
