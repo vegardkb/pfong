@@ -37,39 +37,36 @@ pub struct GameConfig {
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Action {
-    pub left: bool,
-    pub right: bool,
-    pub up: bool,
-    pub down: bool,
-    pub rotate_left: bool,
-    pub rotate_right: bool,
+    pub left_right: f32,
+    pub down_up: f32,
+    pub rotate: f32,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Ball {
-    pos: [f32; 2],
-    speed: [f32; 2],
-    radius: f32,
-    mass: f32,
+    pub pos: [f32; 2],
+    pub speed: [f32; 2],
+    pub radius: f32,
+    pub mass: f32,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Player {
-    pos: [f32; 2],
-    min_x: f32,
-    max_x: f32,
-    min_y: f32,
-    max_y: f32,
-    width: f32,
-    height: f32,
-    speed: [f32; 2],
-    linear_acc: f32,
-    linear_friction: f32,
-    angle: f32,
-    angular_velocity: f32,
-    angular_acc: f32,
-    angular_friction: f32,
-    mass: f32,
+    pub pos: [f32; 2],
+    pub min_x: f32,
+    pub max_x: f32,
+    pub min_y: f32,
+    pub max_y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub speed: [f32; 2],
+    pub linear_acc: f32,
+    pub linear_friction: f32,
+    pub angle: f32,
+    pub angular_velocity: f32,
+    pub angular_acc: f32,
+    pub angular_friction: f32,
+    pub mass: f32,
 }
 
 impl GameEngine {
@@ -283,14 +280,6 @@ impl Ball {
         }
         out
     }
-
-    pub fn get_pos(&self) -> [f32; 2] {
-        self.pos
-    }
-
-    pub fn get_radius(&self) -> f32 {
-        self.radius
-    }
 }
 
 impl Player {
@@ -321,24 +310,24 @@ impl Player {
     }
 
     fn input(&mut self, action: &Action, delta_time: f32) {
-        if action.up {
-            self.speed[1] -= self.linear_acc * delta_time;
-        }
-        if action.down {
-            self.speed[1] += self.linear_acc * delta_time;
-        }
-        if action.left {
-            self.speed[0] -= self.linear_acc * delta_time;
-        }
-        if action.right {
-            self.speed[0] += self.linear_acc * delta_time;
-        }
-        if action.rotate_left {
-            self.angular_velocity -= self.angular_acc * delta_time;
-        }
-        if action.rotate_right {
-            self.angular_velocity += self.angular_acc * delta_time;
-        }
+        let down_up = if action.down_up.is_nan() {
+            0.0
+        } else {
+            action.down_up.clamp(-1.0, 1.0)
+        };
+        self.speed[1] += down_up * self.linear_acc * delta_time;
+        let left_right = if action.left_right.is_nan() {
+            0.0
+        } else {
+            action.left_right.clamp(-1.0, 1.0)
+        };
+        self.speed[0] += left_right * self.linear_acc * delta_time;
+        let rotate = if action.rotate.is_nan() {
+            0.0
+        } else {
+            action.rotate.clamp(-1.0, 1.0)
+        };
+        self.angular_velocity += rotate * self.angular_acc * delta_time;
     }
 
     fn update(&mut self, delta_time: f32) {
@@ -369,21 +358,5 @@ impl Player {
         self.angular_velocity -= self.angular_friction * self.angular_velocity * delta_time;
         self.speed[0] -= self.speed[0] * self.linear_friction * delta_time;
         self.speed[1] -= self.speed[1] * self.linear_friction * delta_time;
-    }
-
-    pub fn get_pos(&self) -> [f32; 2] {
-        self.pos
-    }
-
-    pub fn get_height(&self) -> f32 {
-        self.height
-    }
-
-    pub fn get_width(&self) -> f32 {
-        self.width
-    }
-
-    pub fn get_angle(&self) -> f32 {
-        self.angle
     }
 }

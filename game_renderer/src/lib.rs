@@ -6,12 +6,12 @@ pub trait Renderer {
 }
 
 fn draw_player(player: &Player) {
-    let pos = player.get_pos();
+    let pos = player.pos;
     let x = pos[0] * screen_width();
     let y = pos[1] * screen_height();
-    let height = player.get_height() * screen_height();
-    let width = player.get_width() * screen_height();
-    let angle = player.get_angle();
+    let height = player.height * screen_height();
+    let width = player.width * screen_height();
+    let angle = player.angle;
     draw_line(
         x - height * angle.cos() / 2.0,
         y - height * angle.sin() / 2.0,
@@ -23,10 +23,10 @@ fn draw_player(player: &Player) {
 }
 
 fn draw_ball(ball: &Ball) {
-    let pos = ball.get_pos();
+    let pos = ball.pos;
     let x = pos[0] * screen_width();
     let y = pos[1] * screen_height();
-    let radius = ball.get_radius() * screen_width();
+    let radius = ball.radius * screen_width();
     draw_circle(x, y, radius, WHITE);
 }
 

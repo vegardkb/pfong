@@ -109,6 +109,99 @@ impl GameSession<HeadlessRenderer> {
     }
 }
 
+fn calculate_time_to_collision_x(
+    pos: [f32; 2],
+    speed: [f32; 2],
+    linear_friction: f32,
+    x: f32,
+) -> f32 {
+    let t1 = match (x - pos[0]) / speed[0] {
+        t if t > 0.0 => t,
+        _ => f32::INFINITY,
+    };
+    let t2 = match ((2.0 - x) - pos[0]) / speed[0] {
+        t if t > 0.0 => t,
+        _ => f32::INFINITY,
+    };
+
+    let t_no_friction = t1.min(t2);
+
+    if linear_friction < 0.001 {
+        return t_no_friction;
+    }
+
+    let distance = t_no_friction * speed[0];
+
+    let log_term = 1.0 - linear_friction * distance / speed[0];
+    if log_term <= 0.0 {
+        f32::INFINITY
+    } else {
+        -1.0 / linear_friction * log_term.ln()
+    }
+}
+
+fn calculate_position_at_time(
+    pos: [f32; 2],
+    speed: [f32; 2],
+    linear_friction: f32,
+    t: f32,
+    x_max: f32,
+) -> [f32; 2] {
+    let mut x;
+    let mut y;
+    if linear_friction < 0.001 {
+        x = pos[0] + speed[0] * t;
+        y = pos[1] + speed[1] * t;
+    } else {
+        x = pos[0] + speed[0] / linear_friction * (1.0 - (-1.0 * linear_friction * t).exp());
+        y = pos[1] + speed[1] / linear_friction * (1.0 - (-1.0 * linear_friction * t).exp());
+    }
+    while x > 2.0 * x_max || x < 0.0 {
+        if x > 2.0 * x_max {
+            x -= 2.0 * x_max;
+        } else if x < 0.0 {
+            x += 2.0 * x_max;
+        }
+    }
+    while y > 2.0 || y < 0.0 {
+        if y > 2.0 {
+            y -= 2.0;
+        } else if y < 0.0 {
+            y += 2.0;
+        }
+    }
+    if x > x_max {
+        x = 2.0 * x_max - x;
+    }
+    if y > 1.0 {
+        y = 2.0 - y;
+    }
+    [x, y]
+}
+
+fn calculate_angle_and_velocity_at_time(
+    angle: f32,
+    angular_velocity: f32,
+    angular_friction: f32,
+    time: f32,
+) -> (f32, f32) {
+    let mut end_angle = angle
+        + angular_velocity * time / angular_friction
+            * (1.0 - (-1.0 * angular_friction * time).exp());
+    let end_angular_velocity = angular_velocity * (-angular_friction * time).exp();
+    if !end_angle.is_finite() {
+        end_angle = 0.0;
+    }
+    while end_angle > 2.0 * PI || end_angle < 0.0 {
+        if end_angle > 2.0 * PI {
+            end_angle -= 2.0 * PI;
+        } else if end_angle < 0.0 {
+            end_angle += 2.0 * PI;
+        }
+    }
+    (end_angle, end_angular_velocity)
+}
+
 pub trait Agent {
     fn get_action(&mut self, state: &GameState, metadata: &SessionMetadata) -> Action;
 
@@ -129,12 +222,27 @@ struct HumanAgent {}
 impl Agent for HumanAgent {
     fn get_action(&mut self, _state: &GameState, _metadata: &SessionMetadata) -> Action {
         Action {
-            left: is_key_down(KeyCode::Left) | is_key_down(KeyCode::A),
-            right: is_key_down(KeyCode::Right) | is_key_down(KeyCode::D),
-            up: is_key_down(KeyCode::Up) | is_key_down(KeyCode::W),
-            down: is_key_down(KeyCode::Down) | is_key_down(KeyCode::S),
-            rotate_left: is_key_down(KeyCode::Q),
-            rotate_right: is_key_down(KeyCode::E),
+            left_right: if is_key_down(KeyCode::A) {
+                -1.0
+            } else if is_key_down(KeyCode::D) {
+                1.0
+            } else {
+                0.0
+            },
+            down_up: if is_key_down(KeyCode::S) {
+                1.0
+            } else if is_key_down(KeyCode::W) {
+                -1.0
+            } else {
+                0.0
+            },
+            rotate: if is_key_down(KeyCode::Q) {
+                -1.0
+            } else if is_key_down(KeyCode::E) {
+                1.0
+            } else {
+                0.0
+            },
         }
     }
 
@@ -148,12 +256,9 @@ struct RandomAgent {}
 impl Agent for RandomAgent {
     fn get_action(&mut self, _state: &GameState, _metadata: &SessionMetadata) -> Action {
         Action {
-            left: rand::random(),
-            right: rand::random(),
-            up: rand::random(),
-            down: rand::random(),
-            rotate_left: rand::random(),
-            rotate_right: rand::random(),
+            left_right: rand::random(),
+            down_up: rand::random(),
+            rotate: rand::random(),
         }
     }
 
@@ -168,234 +273,104 @@ struct HeuristicAgent {
 
 impl Agent for HeuristicAgent {
     fn get_action(&mut self, state: &GameState, _metadata: &SessionMetadata) -> Action {
-        let mut down = false;
-        let mut up = false;
-        let mut pos;
-        let mut ball_pos = state.get_ball().get_pos();
+        let ball = state.get_ball();
+        let mut ball_pos = ball.pos;
+        let mut ball_speed = ball.speed;
+
+        let player;
+        let x_max;
         if self.player_id == 1 {
-            pos = state.get_player1().get_pos();
+            player = state.get_player1();
+            x_max = 1.0 - player.min_x;
+        } else {
+            player = state.get_player2();
+            x_max = player.max_x;
+        }
+
+        let mut pos = player.pos;
+        let mut speed = player.speed;
+        let mut angle = player.angle;
+        let mut angular_velocity = player.angular_velocity;
+        let linear_friction = player.linear_friction;
+        let angular_friction = player.angular_friction;
+
+        if self.player_id == 1 {
             pos[0] = 1.0 - pos[0];
             ball_pos[0] = 1.0 - ball_pos[0];
-        } else {
-            pos = state.get_player2().get_pos();
+            ball_speed[0] = -ball_speed[0];
+            speed[0] = -speed[0];
+            angle = -angle;
+            angular_velocity = -angular_velocity;
         }
 
-        if ball_pos[0] > pos[0] {
-            if ball_pos[1] > pos[1] {
-                down = true;
-            } else if ball_pos[1] < pos[1] {
-                up = true;
+        // Simulate ball and player movement
+        let time_to_ball = calculate_time_to_collision_x(ball_pos, ball_speed, 0.0, 0.1);
+
+        let player_pos_forecast = if time_to_ball.is_finite() {
+            calculate_position_at_time(pos, speed, linear_friction, time_to_ball, x_max)
+        } else {
+            pos
+        };
+
+        let ball_pos_forecast = if time_to_ball.is_finite() {
+            calculate_position_at_time(ball_pos, ball_speed, 0.0, time_to_ball, 1.0)
+        } else {
+            ball_pos
+        };
+
+        let error_x = ball_pos_forecast[0] - player_pos_forecast[0];
+        let mut error_y = ball_pos_forecast[1] - player_pos_forecast[1];
+
+        // Select side to aim for
+        let target_angle = 0.0;
+        let target_angular_vel = if error_y > 0.0 {
+            error_y -= player.height / 4.0;
+            PI
+        } else {
+            error_y += player.height / 4.0;
+            -PI
+        };
+
+        let left_right = (2.0 * error_x) / (player.linear_acc * time_to_ball.powi(2));
+        let down_up = (2.0 * error_y) / (player.linear_acc * time_to_ball.powi(2));
+
+        let (angle_forecast, angular_vel_forecast) = calculate_angle_and_velocity_at_time(
+            angle,
+            angular_velocity,
+            angular_friction,
+            time_to_ball,
+        );
+
+        let mut error_angle = angle_forecast - target_angle;
+        while error_angle.abs() > PI / 2.0 {
+            if error_angle > PI / 2.0 {
+                error_angle -= PI;
+            } else if error_angle < -PI / 2.0 {
+                error_angle += PI;
             }
-        } else if ball_pos[1] > pos[1] {
-            up = true;
-        } else if ball_pos[1] < pos[1] {
-            down = true;
         }
+
+        let error_angular_vel = angular_vel_forecast - target_angular_vel;
+
+        let rotate = (2.0 * error_angle) / (player.angular_acc * time_to_ball.powi(2))
+            + error_angular_vel / player.angular_acc;
+
+        println!("Time to ball: {}", time_to_ball);
+        println!("Errors position: x={}, y={}", error_x, error_y);
+        println!(
+            "Errors angle: angle={}, angular_vel={}",
+            error_angle, error_angular_vel
+        );
 
         Action {
-            left: false,
-            right: false,
-            up,
-            down,
-            rotate_left: false,
-            rotate_right: false,
+            left_right,
+            down_up,
+            rotate,
         }
     }
 
     fn get_name(&self) -> String {
         "Heuristic".to_string()
-    }
-}
-pub struct ImprovedHeuristicAgent {
-    player_id: u8,
-    prev_ball_pos: Option<[f32; 2]>,
-    ball_velocity: [f32; 2],
-    target_y: f32,
-    prediction_steps: usize,
-}
-
-impl ImprovedHeuristicAgent {
-    pub fn new(player_id: u8) -> Self {
-        Self {
-            player_id,
-            prev_ball_pos: None,
-            ball_velocity: [0.0, 0.0],
-            target_y: 0.5,
-            prediction_steps: 50, // Predict 50 steps ahead
-        }
-    }
-
-    fn calculate_ball_velocity(&mut self, current_ball_pos: [f32; 2]) {
-        if let Some(prev_pos) = self.prev_ball_pos {
-            self.ball_velocity = [
-                current_ball_pos[0] - prev_pos[0],
-                current_ball_pos[1] - prev_pos[1],
-            ];
-        }
-        self.prev_ball_pos = Some(current_ball_pos);
-    }
-
-    fn predict_ball_trajectory(&self, ball: &Ball, steps: usize) -> [f32; 2] {
-        let mut predicted_pos = ball.get_pos();
-        let mut predicted_velocity = self.ball_velocity;
-
-        for _ in 0..steps {
-            // Basic physics prediction with wall bounces
-            predicted_pos[0] += predicted_velocity[0];
-            predicted_pos[1] += predicted_velocity[1];
-
-            // Handle wall collisions
-            if predicted_pos[1] <= 0.0 || predicted_pos[1] >= 1.0 {
-                predicted_velocity[1] = -predicted_velocity[1];
-                predicted_pos[1] = predicted_pos[1].clamp(0.0, 1.0);
-            }
-
-            // If ball goes beyond paddle range, we can't predict further
-            if (self.player_id == 1 && predicted_pos[0] > 1.0)
-                || (self.player_id == 2 && predicted_pos[0] < 0.0)
-            {
-                break;
-            }
-        }
-
-        predicted_pos
-    }
-
-    fn calculate_optimal_paddle_angle(&self, ball_pos: [f32; 2], paddle_pos: [f32; 2]) -> f32 {
-        // Calculate angle to direct ball towards opponent's weak spots
-        let dx = ball_pos[0] - paddle_pos[0];
-        let dy = ball_pos[1] - paddle_pos[1];
-
-        // Base angle (perpendicular to the line between paddle and ball)
-        let mut angle = dy.atan2(dx) + PI / 2.0;
-
-        // Add strategic variation - aim for corners
-        if self.player_id == 1 {
-            // Player 1: aim towards player 2's edges
-            if ball_pos[1] > 0.5 {
-                angle += 0.3; // Aim slightly upward
-            } else {
-                angle -= 0.3; // Aim slightly downward
-            }
-        } else {
-            // Player 2: aim towards player 1's edges
-            if ball_pos[1] > 0.5 {
-                angle -= 0.3; // Aim slightly downward
-            } else {
-                angle += 0.3; // Aim slightly upward
-            }
-        }
-
-        // Normalize angle
-        while angle > 2.0 * PI {
-            angle -= 2.0 * PI;
-        }
-        while angle < 0.0 {
-            angle += 2.0 * PI;
-        }
-
-        angle
-    }
-
-    fn should_intercept(&self, ball_pos: [f32; 2]) -> bool {
-        if self.player_id == 1 {
-            ball_pos[0] > 0.6 && self.ball_velocity[0] > 0.0
-        } else {
-            ball_pos[0] < 0.4 && self.ball_velocity[0] < 0.0
-        }
-    }
-}
-
-impl Agent for ImprovedHeuristicAgent {
-    fn get_action(&mut self, state: &GameState, _metadata: &SessionMetadata) -> Action {
-        let (player, opponent, ball) = if self.player_id == 1 {
-            (state.get_player1(), state.get_player2(), state.get_ball())
-        } else {
-            (state.get_player2(), state.get_player1(), state.get_ball())
-        };
-
-        let ball_pos = ball.get_pos();
-        let player_pos = player.get_pos();
-
-        // Update ball velocity tracking
-        self.calculate_ball_velocity(ball_pos);
-
-        // Predict ball trajectory
-        let predicted_pos = self.predict_ball_trajectory(ball, self.prediction_steps);
-
-        // Determine if we should be aggressive or defensive
-        let should_intercept = self.should_intercept(ball_pos);
-
-        let mut action = Action {
-            left: false,
-            right: false,
-            up: false,
-            down: false,
-            rotate_left: false,
-            rotate_right: false,
-        };
-
-        if should_intercept {
-            // Aggressive mode - go for the ball
-            self.target_y = predicted_pos[1];
-
-            // Calculate optimal paddle angle
-            let target_angle = self.calculate_optimal_paddle_angle(ball_pos, player_pos);
-            let current_angle = player.get_angle();
-            let angle_diff = target_angle - current_angle;
-
-            // Rotate towards optimal angle
-            if angle_diff.abs() > 0.1 {
-                if angle_diff > 0.0 {
-                    action.rotate_right = true;
-                } else {
-                    action.rotate_left = true;
-                }
-            }
-        } else {
-            // Defensive mode - position strategically
-            let opponent_pos = opponent.get_pos();
-
-            // Position based on opponent's position and ball trajectory
-            if opponent_pos[1] < 0.5 {
-                self.target_y = 0.7; // Cover top side
-            } else {
-                self.target_y = 0.3; // Cover bottom side
-            }
-        }
-
-        // Vertical movement to reach target position
-        let vertical_threshold = 0.02;
-        if player_pos[1] < self.target_y - vertical_threshold {
-            action.down = true;
-        } else if player_pos[1] > self.target_y + vertical_threshold {
-            action.up = true;
-        }
-
-        // Horizontal positioning - stay in optimal defensive position
-        let optimal_x = if self.player_id == 1 { 0.85 } else { 0.15 };
-        let horizontal_threshold = 0.01;
-
-        if player_pos[0] < optimal_x - horizontal_threshold {
-            action.right = true;
-        } else if player_pos[0] > optimal_x + horizontal_threshold {
-            action.left = true;
-        }
-
-        // Add some randomness to make it less predictable (optional)
-        if rand::random::<f32>() < 0.02 {
-            // 2% chance per frame
-            if rand::random::<bool>() {
-                action.rotate_left = !action.rotate_left;
-                action.rotate_right = !action.rotate_right;
-            }
-        }
-
-        action
-    }
-
-    fn get_name(&self) -> String {
-        "ImprovedHeuristic".to_string()
     }
 }
 
@@ -416,7 +391,6 @@ struct PythonResponse {
 pub fn create_agent(player_id: u8, agent_name: String) -> Box<dyn Agent> {
     match agent_name.as_str() {
         "Heuristic" => Box::new(HeuristicAgent { player_id }),
-        "ImprovedHeuristic" => Box::new(ImprovedHeuristicAgent::new(player_id)),
         "Random" => Box::new(RandomAgent {}),
         "Human" => Box::new(HumanAgent {}),
         "Python" => {
