@@ -1,4 +1,4 @@
-use game_engine::{Action, Ball, GameConfig, GameEngine, GameState};
+use game_engine::{Action, Ball, GameConfig, GameEngine, GameState, Player};
 use game_renderer::{HeadlessRenderer, Renderer, WindowRenderer};
 use macroquad::input::{KeyCode, is_key_down};
 use macroquad::window::next_frame;
@@ -187,6 +187,36 @@ fn calculate_state_at_time(
     ([x, y], [vx, vy])
 }
 
+fn acceleration_needed(target: f32, pos: f32, speed: f32, friction: f32, time: f32) -> f32 {
+    let d = target - pos;
+    let gamma = 1.0 - (-1.0 * friction * time).exp();
+    let nom = d - speed * gamma / friction;
+    let denom = (friction * time - gamma) / (friction * friction);
+    nom / denom
+}
+
+fn ball_is_reachable(ball: &Ball, player: &Player, time: f32) -> bool {
+    let (target_pos, _target_speed) = calculate_state_at_time(ball.pos, ball.speed, 0.0, time, 1.0);
+    let pos = player.pos;
+    let speed = player.speed;
+    let ax = acceleration_needed(
+        target_pos[0],
+        pos[0],
+        speed[0],
+        player.linear_friction,
+        time,
+    );
+    let ay = acceleration_needed(
+        target_pos[1],
+        pos[1],
+        speed[1],
+        player.linear_friction,
+        time,
+    );
+
+    return (ax.abs() < player.linear_acc) && (ay.abs() < player.linear_acc);
+}
+
 fn calculate_angle_and_velocity_at_time(
     angle: f32,
     angular_velocity: f32,
@@ -286,20 +316,16 @@ impl Agent for HeuristicAgent {
         let mut ball_speed = ball.speed;
 
         let player;
-        let x_max;
         if self.player_id == 1 {
             player = state.get_player1();
-            x_max = 1.0 - player.min_x;
         } else {
             player = state.get_player2();
-            x_max = player.max_x;
         }
 
         let mut pos = player.pos;
         let mut speed = player.speed;
         let mut angle = player.angle;
         let mut angular_velocity = player.angular_velocity;
-        let linear_friction = player.linear_friction;
         let angular_friction = player.angular_friction;
 
         if self.player_id == 1 {
@@ -312,42 +338,79 @@ impl Agent for HeuristicAgent {
         }
 
         // Simulate ball and player movement
-        let time_to_ball = calculate_time_to_collision_x(ball_pos, ball_speed, 0.0, 0.1);
+        let x_intercepts = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3];
+        let mut min_time_to_ball = f32::INFINITY;
+        for x_intercept in x_intercepts {
+            let time_to_ball =
+                calculate_time_to_collision_x(ball_pos, ball_speed, 0.0, x_intercept);
+            let can_reach = if time_to_ball.is_finite() {
+                ball_is_reachable(ball, player, time_to_ball)
+            } else {
+                false
+            };
+            if can_reach {
+                min_time_to_ball = min_time_to_ball.min(time_to_ball);
+            }
+        }
+        println!("Time to ball: {}", min_time_to_ball);
 
-        let (player_pos_forecast, player_speed_forecast) = if time_to_ball.is_finite() {
-            calculate_state_at_time(pos, speed, linear_friction, time_to_ball, x_max)
-        } else {
-            (pos, speed)
-        };
+        let time_to_ball = min_time_to_ball;
 
         let (ball_pos_forecast, ball_speed_forecast) = if time_to_ball.is_finite() {
             calculate_state_at_time(ball_pos, ball_speed, 0.0, time_to_ball, 1.0)
         } else {
-            (ball_pos, ball_speed)
+            (
+                [
+                    (player.min_x + player.max_x) / 2.0,
+                    (player.min_y + player.max_y) / 2.0,
+                ],
+                [0.0, 0.0],
+            )
         };
-
-        let error_x = ball_pos_forecast[0] - player_pos_forecast[0];
-        let mut error_y = ball_pos_forecast[1] - player_pos_forecast[1];
 
         // Select side to aim for
         let target_angle = 0.0;
         let target_angular_vel = if ball_speed_forecast[1] < 0.0 {
-            error_y -= player.height / 3.0;
             PI
-        } else {
-            error_y += player.height / 3.0;
+        } else if ball_speed_forecast[1] > 0.0 {
             -PI
+        } else {
+            0.0
         };
 
-        let left_right = (2.0 * error_x) / (player.linear_acc * time_to_ball.powi(2));
-        let down_up = (2.0 * error_y) / (player.linear_acc * time_to_ball.powi(2));
+        let left_right = if time_to_ball.is_finite() {
+            acceleration_needed(
+                ball_pos_forecast[0],
+                player.pos[0],
+                player.speed[0],
+                player.linear_friction,
+                time_to_ball,
+            )
+        } else {
+            0.0
+        };
+        let down_up = if time_to_ball.is_finite() {
+            acceleration_needed(
+                ball_pos_forecast[1],
+                player.pos[1],
+                player.speed[1],
+                player.linear_friction,
+                time_to_ball,
+            )
+        } else {
+            0.0
+        };
 
-        let (angle_forecast, angular_vel_forecast) = calculate_angle_and_velocity_at_time(
-            angle,
-            angular_velocity,
-            angular_friction,
-            time_to_ball,
-        );
+        let (angle_forecast, angular_vel_forecast) = if time_to_ball.is_finite() {
+            calculate_angle_and_velocity_at_time(
+                angle,
+                angular_velocity,
+                angular_friction,
+                time_to_ball,
+            )
+        } else {
+            (0.0, 0.0)
+        };
 
         let mut error_angle = angle_forecast - target_angle;
         while error_angle.abs() > PI / 2.0 {
@@ -360,16 +423,16 @@ impl Agent for HeuristicAgent {
 
         let error_angular_vel = angular_vel_forecast - target_angular_vel;
 
-        let rotate = (2.0 * error_angle) / (player.angular_acc * time_to_ball.powi(2))
-            + error_angular_vel / player.angular_acc;
+        let rotate = if time_to_ball.is_finite() {
+            (2.0 * error_angle) / (player.angular_acc * time_to_ball.powi(2))
+                + error_angular_vel / player.angular_acc
+        } else {
+            0.0
+        };
 
-        println!("Time to ball: {}", time_to_ball);
-        println!("Errors position: x={}, y={}", error_x, error_y);
-        println!(
-            "Errors angle: angle={}, angular_vel={}",
-            error_angle, error_angular_vel
-        );
-
+        println!("left_right {left_right}");
+        println!("down_up {down_up}");
+        println!("rotate {rotate}");
         Action {
             left_right,
             down_up,
