@@ -370,35 +370,12 @@ impl Agent for HeuristicAgent {
 
         // Select side to aim for
         let target_angle = 0.0;
-        let target_angular_vel = if ball_speed_forecast[1] < 0.0 {
-            PI
+        let (target_angular_vel, target_adjustment) = if ball_speed_forecast[1] < 0.0 {
+            (PI, -player.height / 4.0)
         } else if ball_speed_forecast[1] > 0.0 {
-            -PI
+            (-PI, player.height / 4.0)
         } else {
-            0.0
-        };
-
-        let left_right = if time_to_ball.is_finite() {
-            acceleration_needed(
-                ball_pos_forecast[0],
-                player.pos[0],
-                player.speed[0],
-                player.linear_friction,
-                time_to_ball,
-            )
-        } else {
-            0.0
-        };
-        let down_up = if time_to_ball.is_finite() {
-            acceleration_needed(
-                ball_pos_forecast[1],
-                player.pos[1],
-                player.speed[1],
-                player.linear_friction,
-                time_to_ball,
-            )
-        } else {
-            0.0
+            (0.0, 0.0)
         };
 
         let (angle_forecast, angular_vel_forecast) = if time_to_ball.is_finite() {
@@ -426,6 +403,29 @@ impl Agent for HeuristicAgent {
         let rotate = if time_to_ball.is_finite() {
             (2.0 * error_angle) / (player.angular_acc * time_to_ball.powi(2))
                 + error_angular_vel / player.angular_acc
+        } else {
+            0.0
+        };
+
+        let left_right = if time_to_ball.is_finite() {
+            acceleration_needed(
+                ball_pos_forecast[0],
+                player.pos[0],
+                player.speed[0],
+                player.linear_friction,
+                time_to_ball,
+            )
+        } else {
+            0.0
+        };
+        let down_up = if time_to_ball.is_finite() {
+            acceleration_needed(
+                ball_pos_forecast[1] + target_adjustment,
+                player.pos[1],
+                player.speed[1],
+                player.linear_friction,
+                time_to_ball,
+            )
         } else {
             0.0
         };
