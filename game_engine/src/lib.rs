@@ -1,6 +1,7 @@
 use macroquad::math::vec2;
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
+use std::fmt::Debug;
 use uuid::Uuid;
 
 pub struct GameEngine {
@@ -36,7 +37,7 @@ pub struct GameConfig {
     ball_mass: f32,
 }
 
-#[derive(Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize, Default, Copy, Debug)]
 pub struct Action {
     pub left_right: f32,
     pub down_up: f32,
@@ -209,11 +210,11 @@ impl Default for GameConfig {
         GameConfig {
             player_width: 0.01,
             player_height: 0.10,
-            player_linear_acc: 1.0,
+            player_linear_acc: 1.0, //1.0,
             player_linear_friction: 0.3,
-            player_angular_acc: 10.0,
+            player_angular_acc: 10.0, //10.0,
             player_angular_friction: 0.3,
-            player_mass: 2.0,
+            player_mass: 3.0,
             ball_radius: 0.01,
             ball_speed: speed,
             ball_mass: 1.0,
@@ -355,11 +356,12 @@ impl Player {
         self.pos[0] += self.speed[0] * delta_time;
         self.pos[1] += self.speed[1] * delta_time;
         self.angle += self.angular_velocity * delta_time;
-        if self.angle > 2.0 * PI {
-            self.angle -= 2.0 * PI;
-        }
-        if self.angle < 0.0 {
-            self.angle += 2.0 * PI;
+        while self.angle.abs() > PI / 2.0 {
+            if self.angle > PI / 2.0 {
+                self.angle -= PI;
+            } else {
+                self.angle += PI;
+            }
         }
 
         if self.pos[0] < self.min_x {
@@ -376,7 +378,7 @@ impl Player {
             self.speed[1] = -self.speed[1];
         }
 
-        self.angular_velocity -= self.angular_friction * self.angular_velocity * delta_time;
+        self.angular_velocity -= self.angular_velocity * self.angular_friction * delta_time;
         self.speed[0] -= self.speed[0] * self.linear_friction * delta_time;
         self.speed[1] -= self.speed[1] * self.linear_friction * delta_time;
     }

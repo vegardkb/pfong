@@ -91,7 +91,6 @@ impl Renderer for WindowRenderer {
         let player2 = game_state.get_player2();
         let ball = game_state.get_ball();
         let energy = get_state_energy(game_state);
-        println!("Energy: {}", energy);
         let max_energy = 2.5;
 
         let mut r = player2.calc_energy().clamp(0.0, max_energy) / max_energy;
