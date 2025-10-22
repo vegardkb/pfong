@@ -1,21 +1,25 @@
 use game_engine::{Ball, GameState, Player};
+use macroquad::audio::{PlaySoundParams, play_sound};
 use macroquad::prelude::*;
 
 pub trait Renderer {
     fn render(&self, game_state: &GameState);
 }
 
-fn get_state_energy(game_state: &GameState) -> f32 {
-    game_state.get_player1().calc_energy()
-        + game_state.get_player2().calc_energy()
-        + game_state.get_ball().calc_energy()
+pub struct WindowRenderer {
+    wall_bounce_sound: macroquad::audio::Sound,
+    paddle_bounce_sound: macroquad::audio::Sound,
 }
 
-pub struct WindowRenderer {}
-
 impl WindowRenderer {
-    pub fn new() -> Self {
-        WindowRenderer {}
+    pub fn new(
+        wall_bounce_sound: macroquad::audio::Sound,
+        paddle_bounce_sound: macroquad::audio::Sound,
+    ) -> Self {
+        WindowRenderer {
+            wall_bounce_sound,
+            paddle_bounce_sound,
+        }
     }
 
     fn pos_to_coordinates(&self, pos: [f32; 2]) -> (f32, f32) {
@@ -90,12 +94,39 @@ impl Renderer for WindowRenderer {
         let player1 = game_state.get_player1();
         let player2 = game_state.get_player2();
         let ball = game_state.get_ball();
-        let energy = get_state_energy(game_state);
-        let max_energy = 2.5;
+        let max_energy = 7.0;
 
         let mut r = player2.calc_energy().clamp(0.0, max_energy) / max_energy;
         let g = ball.calc_energy().clamp(0.0, max_energy) / max_energy;
         let mut b = player1.calc_energy().clamp(0.0, max_energy) / max_energy;
+
+        if game_state.get_wall_hit() {
+            let volume = ball.calc_energy().clamp(0.0, 1.0);
+            let sound_params = PlaySoundParams {
+                volume,
+                looped: false,
+            };
+            play_sound(&self.wall_bounce_sound, sound_params);
+        }
+
+        if game_state.get_ball_hit() != 0 {
+            let sound_params = if game_state.get_ball_hit() == 1 {
+                let volume =
+                    player1.calc_energy().clamp(0.0, 1.0) + ball.calc_energy().clamp(0.0, 1.0);
+                PlaySoundParams {
+                    volume,
+                    looped: false,
+                }
+            } else {
+                let volume =
+                    player2.calc_energy().clamp(0.0, 1.0) + ball.calc_energy().clamp(0.0, 1.0);
+                PlaySoundParams {
+                    volume,
+                    looped: false,
+                }
+            };
+            play_sound(&self.paddle_bounce_sound, sound_params);
+        }
 
         let point_time_scale = 0.2;
         let point_intensity = 0.5;
@@ -106,6 +137,11 @@ impl Renderer for WindowRenderer {
             let point_time = game_state.get_point_time();
             r = r + point_intensity * point_time_scale / (point_time + point_time_scale);
         }
+
+        let score_intensity = 0.05;
+        let score = game_state.get_score();
+        b += score[0] as f32 * score_intensity;
+        r += score[1] as f32 * score_intensity;
 
         clear_background(Color { r, g, b, a: 0.5 });
         //clear_background(BLACK);
@@ -118,12 +154,6 @@ impl Renderer for WindowRenderer {
         self.draw_inner_boundary(player1);
         self.draw_inner_boundary(player2);
         self.draw_score(game_state);
-    }
-}
-
-impl Default for WindowRenderer {
-    fn default() -> Self {
-        WindowRenderer::new()
     }
 }
 

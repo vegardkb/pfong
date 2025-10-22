@@ -1,6 +1,8 @@
 use game_engine::{Action, GameConfig, GameEngine, GameState};
 use game_renderer::{HeadlessRenderer, Renderer, WindowRenderer};
+use macroquad::audio::{PlaySoundParams, load_sound, play_sound};
 use macroquad::input::{KeyCode, is_key_down};
+use macroquad::prelude::set_pc_assets_folder;
 use macroquad::window::next_frame;
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
@@ -232,13 +234,117 @@ fn ball_is_reachable(
     speed: [f32; 2],
     friction: f32,
     max_acc: f32,
+    player_height: f32,
     time: f32,
 ) -> bool {
     let (target_pos, _target_speed) = calculate_state_at_time(ball_pos, ball_speed, 0.0, time, 1.0);
-    let ax = acceleration_needed(target_pos[0], pos[0], speed[0], friction, time);
-    let ay = acceleration_needed(target_pos[1], pos[1], speed[1], friction, time);
+    let ax_low = acceleration_needed(
+        target_pos[0] - player_height / 4.0,
+        pos[0],
+        speed[0],
+        friction,
+        time,
+    );
+    let ax_high = acceleration_needed(
+        target_pos[0] + player_height / 4.0,
+        pos[0],
+        speed[0],
+        friction,
+        time,
+    );
+    let ay_low = acceleration_needed(
+        target_pos[1] - player_height / 4.0,
+        pos[1],
+        speed[1],
+        friction,
+        time,
+    );
+    let ay_high = acceleration_needed(
+        target_pos[1] + player_height / 4.0,
+        pos[1],
+        speed[1],
+        friction,
+        time,
+    );
 
-    return (ax.abs() < max_acc) && (ay.abs() < max_acc);
+    return (ax_low.abs().min(ax_high.abs()) < max_acc)
+        && (ay_low.abs().min(ay_high.abs()) < max_acc);
+}
+
+fn solve_acceleration(
+    ball_pos: [f32; 2],
+    ball_speed: [f32; 2],
+    pos: [f32; 2],
+    speed: [f32; 2],
+    angle: f32,
+    angular_velocity: f32,
+    angular_acc: f32,
+    time: f32,
+    linear_friction: f32,
+    angular_friction: f32,
+    player_height: f32,
+    num_iterations: usize,
+) -> (f32, f32, f32) {
+    let (target_pos, target_speed) = calculate_state_at_time(ball_pos, ball_speed, 0.0, time, 1.0);
+    let mut left_right = 0.0;
+    let mut down_up = 0.0;
+    let mut angle_incidence = 0.0;
+    let mut target_angle = 0.0;
+    let mut adjustment_x = 0.0;
+    let mut adjustment_y = 0.0;
+
+    for _ in 0..num_iterations {
+        (left_right, down_up) = (
+            acceleration_needed(
+                target_pos[0] + adjustment_x,
+                pos[0],
+                speed[0],
+                linear_friction,
+                time,
+            ),
+            acceleration_needed(
+                target_pos[1] + adjustment_y,
+                pos[1],
+                speed[1],
+                linear_friction,
+                time,
+            ),
+        );
+
+        let (speed_x_forecast, speed_y_forecast) = (
+            calculate_speed_at_time(speed[0], left_right, linear_friction, time),
+            calculate_speed_at_time(speed[1], down_up, linear_friction, time),
+        );
+        angle_incidence =
+            (target_speed[1] - speed_y_forecast).atan2(target_speed[0] - speed_x_forecast);
+
+        target_angle = angle_incidence / 2.0;
+
+        (adjustment_x, adjustment_y) = (
+            target_angle.cos() * player_height / 3.0,
+            target_angle.sin() * player_height / 3.0,
+        );
+    }
+
+    let mut angle_error = target_angle - angle;
+    while angle_error.abs() > PI / 2.0 {
+        if angle_error > 0.0 {
+            angle_error -= PI;
+        } else {
+            angle_error += PI;
+        }
+    }
+
+    let (n_low, n_high) = calc_max_allowed_n(
+        angle_error,
+        angular_velocity,
+        angular_friction,
+        time,
+        angular_acc,
+    );
+    let n = if angle_incidence > 0.0 { n_high } else { n_low };
+    let rotate = acceleration_needed_n(angle_error, angular_velocity, angular_friction, time, n);
+    (left_right, down_up, rotate)
 }
 
 fn linspace(start: f32, end: f32, n: usize) -> Vec<f32> {
@@ -306,9 +412,9 @@ struct RandomAgent {}
 impl Agent for RandomAgent {
     fn get_action(&mut self, _state: &GameState, _metadata: &SessionMetadata) -> Action {
         Action {
-            left_right: rand::random(),
-            down_up: rand::random(),
-            rotate: rand::random(),
+            left_right: (rand::random::<f32>() * 2.0 - 1.0).round(),
+            down_up: (rand::random::<f32>() * 2.0 - 1.0).round(),
+            rotate: (rand::random::<f32>() * 2.0 - 1.0).round(),
         }
     }
 
@@ -370,6 +476,7 @@ impl Agent for HeuristicAgent {
                     speed,
                     player.linear_friction,
                     player.linear_acc,
+                    player.height,
                     time_to_ball,
                 )
             } else {
@@ -381,16 +488,21 @@ impl Agent for HeuristicAgent {
         }
         let time_to_ball = min_time_to_ball;
 
+        let left_right;
+        let down_up;
+        let rotate;
+
+        // If long wait, mirror opponent and stabilize close to center
         if time_to_ball.is_infinite() || time_to_ball > 10.0 {
             let time_to_ball = 1.0;
-            let left_right = acceleration_needed(
+            left_right = acceleration_needed(
                 (min_x + max_x) / 2.0,
                 pos[0],
                 speed[0],
                 player.linear_friction,
                 time_to_ball,
             );
-            let down_up = acceleration_needed(
+            down_up = acceleration_needed(
                 (0.5 + opponent.pos[1]) / 2.0,
                 pos[1],
                 speed[1],
@@ -405,130 +517,30 @@ impl Agent for HeuristicAgent {
                     target_angle += PI;
                 }
             }
-            let rotate = acceleration_needed(
+            rotate = acceleration_needed(
                 target_angle,
                 0.0,
                 angular_velocity,
                 player.angular_friction,
                 time_to_ball,
             );
-
-            let action = if self.player_id == 1 {
-                Action {
-                    left_right: -left_right,
-                    down_up,
-                    rotate: -rotate,
-                }
-            } else {
-                Action {
-                    left_right,
-                    down_up,
-                    rotate,
-                }
-            };
-            return action;
-        }
-
-        let (ball_pos_forecast, ball_speed_forecast) =
-            calculate_state_at_time(ball_pos, ball_speed, 0.0, time_to_ball, 1.0);
-
-        let (guess_left_right, guess_down_up) = (
-            acceleration_needed(
-                ball_pos_forecast[0],
-                pos[0],
-                speed[0],
-                player.linear_friction,
-                time_to_ball,
-            ),
-            acceleration_needed(
-                ball_pos_forecast[1],
-                pos[1],
-                speed[1],
-                player.linear_friction,
-                time_to_ball,
-            ),
-        );
-        let (speed_x_forecast, speed_y_forecast) = (
-            calculate_speed_at_time(
-                speed[0],
-                guess_left_right,
-                player.linear_friction,
-                time_to_ball,
-            ),
-            calculate_speed_at_time(
-                speed[1],
-                guess_down_up,
-                player.linear_friction,
-                time_to_ball,
-            ),
-        );
-
-        let relative_speed_x = ball_speed_forecast[0] - speed_x_forecast;
-        let relative_speed_y = ball_speed_forecast[1] - speed_y_forecast;
-        let angle_incidence = relative_speed_y.atan2(relative_speed_x);
-
-        let target_angle = angle_incidence / 2.0;
-        let mut angle_error = target_angle - angle;
-        while angle_error.abs() > PI / 2.0 {
-            if angle_error > 0.0 {
-                angle_error -= PI;
-            } else {
-                angle_error += PI;
-            }
-        }
-
-        let (n_low, n_high) = calc_max_allowed_n(
-            angle_error,
-            angular_velocity,
-            player.angular_friction,
-            time_to_ball,
-            player.angular_acc,
-        );
-
-        let (rotate, adjustment_x, adjustment_y) = if angle_incidence > 0.0 {
-            (
-                acceleration_needed_n(
-                    angle_error,
-                    angular_velocity,
-                    player.angular_friction,
-                    time_to_ball,
-                    n_high,
-                ),
-                target_angle.cos() * player.height / 2.5,
-                target_angle.sin() * player.height / 2.5,
-            )
         } else {
-            (
-                acceleration_needed_n(
-                    angle_error,
-                    angular_velocity,
-                    player.angular_friction,
-                    time_to_ball,
-                    n_low,
-                ),
-                target_angle.cos() * player.height / 2.5,
-                target_angle.sin() * player.height / 2.5,
-            )
-        };
-
-        let left_right = acceleration_needed(
-            ball_pos_forecast[0] + adjustment_x,
-            pos[0],
-            speed[0],
-            player.linear_friction,
-            time_to_ball,
-        );
-
-        let down_up = acceleration_needed(
-            ball_pos_forecast[1] + adjustment_y,
-            pos[1],
-            speed[1],
-            player.linear_friction,
-            time_to_ball,
-        );
-
-        if self.player_id == 2 {
-            println!("angle incoming (x pi): {}", angle_incidence / PI);
+            // Try to hit the ball
+            let num_iterations = 5;
+            (left_right, down_up, rotate) = solve_acceleration(
+                ball_pos,
+                ball_speed,
+                pos,
+                speed,
+                angle,
+                angular_velocity,
+                player.angular_acc,
+                time_to_ball,
+                player.linear_friction,
+                player.angular_friction,
+                player.height,
+                num_iterations,
+            );
         }
 
         let action = if self.player_id == 1 {
@@ -680,10 +692,22 @@ impl Agent for PythonAgent {
 pub async fn run_interactive_mode(player: String, opponent: String) {
     let config = GameConfig::default();
     let engine = GameEngine::new(config);
-    let renderer = WindowRenderer::new();
 
+    set_pc_assets_folder("assets");
+    let music = load_sound("arcade_music.wav").await.unwrap();
+
+    let soundtrack_params = PlaySoundParams {
+        volume: 0.2,
+        looped: true,
+    };
+    play_sound(&music, soundtrack_params);
     let agent1 = create_agent(1, player);
     let agent2 = create_agent(2, opponent);
+
+    let wall_bounce_sound = load_sound("jump1.wav").await.unwrap();
+    let paddle_bounce_sound = load_sound("jump2.wav").await.unwrap();
+
+    let renderer = WindowRenderer::new(wall_bounce_sound, paddle_bounce_sound);
 
     let step_count = 0;
     let mut session = GameSession {

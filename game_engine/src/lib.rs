@@ -16,6 +16,7 @@ pub struct GameState {
     ball: Ball,
     score: [u32; 2],
     ball_hit: u8,
+    wall_hit: bool,
     point_scored: u8,
     last_point_scored: u8,
     hit_time: f32,
@@ -100,6 +101,7 @@ impl GameState {
             ball: Ball::new(config),
             score: [0, 0],
             ball_hit: 0,
+            wall_hit: false,
             point_scored: 0,
             last_point_scored: 0,
             hit_time: 0.0,
@@ -114,6 +116,7 @@ impl GameState {
 
         self.ball_hit = 0;
         self.point_scored = 0;
+        self.wall_hit = false;
 
         self.check_ball_collision();
 
@@ -124,8 +127,9 @@ impl GameState {
 
         self.check_ball_collision();
 
-        let wall_hit = self.ball.update(delta_time);
-        self.handle_wall_hit(wall_hit);
+        let (point_scored, wall_hit) = self.ball.update(delta_time);
+        self.handle_point_scored(point_scored);
+        self.wall_hit = wall_hit;
     }
 
     fn step_timers(&mut self, delta_time: f32) {
@@ -146,14 +150,14 @@ impl GameState {
         }
     }
 
-    fn handle_wall_hit(&mut self, wall_hit: u8) {
+    fn handle_point_scored(&mut self, point_scored: u8) {
         if self.point_time > 0.05 {
-            if wall_hit == 1 {
+            if point_scored == 1 {
                 self.score[0] += 1;
                 self.point_time = 0.0;
                 self.point_scored = 1;
                 self.last_point_scored = 1;
-            } else if wall_hit == 2 {
+            } else if point_scored == 2 {
                 self.score[1] += 1;
                 self.point_time = 0.0;
                 self.point_scored = 2;
@@ -189,6 +193,14 @@ impl GameState {
     pub fn get_point_time(&self) -> f32 {
         self.point_time
     }
+
+    pub fn get_wall_hit(&self) -> bool {
+        self.wall_hit
+    }
+
+    pub fn get_ball_hit(&self) -> u8 {
+        self.ball_hit
+    }
 }
 
 impl Default for GameConfig {
@@ -210,10 +222,10 @@ impl Default for GameConfig {
         GameConfig {
             player_width: 0.01,
             player_height: 0.10,
-            player_linear_acc: 1.0, //1.0,
-            player_linear_friction: 0.3,
-            player_angular_acc: 10.0, //10.0,
-            player_angular_friction: 0.3,
+            player_linear_acc: 0.8, //1.0,
+            player_linear_friction: 0.5,
+            player_angular_acc: 8.0, //10.0,
+            player_angular_friction: 0.5,
             player_mass: 3.0,
             ball_radius: 0.01,
             ball_speed: speed,
@@ -232,7 +244,7 @@ impl Ball {
         }
     }
 
-    fn update(&mut self, delta_time: f32) -> u8 {
+    fn update(&mut self, delta_time: f32) -> (u8, bool) {
         if self.pos[0] - self.radius < 0.0 {
             self.speed[0] = self.speed[0].abs();
         }
@@ -246,7 +258,7 @@ impl Ball {
             self.speed[1] = -self.speed[1].abs();
         }
 
-        let wall_hit = if self.pos[0] - self.radius < 0.0 {
+        let point_scored = if self.pos[0] - self.radius < 0.0 {
             1
         } else if self.pos[0] + self.radius > 1.0 {
             2
@@ -254,10 +266,20 @@ impl Ball {
             0
         };
 
+        let hit_wall = if self.pos[0] - self.radius < 0.0
+            || self.pos[0] + self.radius > 1.0
+            || self.pos[1] - self.radius < 0.0
+            || self.pos[1] + self.radius > 1.0
+        {
+            true
+        } else {
+            false
+        };
+
         self.pos[0] += self.speed[0] * delta_time;
         self.pos[1] += self.speed[1] * delta_time;
 
-        wall_hit
+        (point_scored, hit_wall)
     }
 
     fn check_collision(&mut self, player: &mut Player) -> bool {
