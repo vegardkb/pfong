@@ -10,6 +10,9 @@ Rust and cargo must be installed, see:
 
 https://doc.rust-lang.org/cargo/getting-started/installation.html
 
+For mac and windows, a couple other dependencies are needed, see:
+
+https://github.com/not-fl3/macroquad
 
 
 
