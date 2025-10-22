@@ -24,7 +24,7 @@ struct Args {
     player: String,
 
     /// Opponent name
-    #[arg(short, long, default_value_t = ("Python").to_string())]
+    #[arg(short, long, default_value_t = ("Heuristic").to_string())]
     opponent: String,
 
     /// Step time between frames
