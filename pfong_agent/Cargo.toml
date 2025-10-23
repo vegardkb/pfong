@@ -1,15 +1,11 @@
 [package]
-name = "game_modes"
+name = "pfong_agent"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 game_engine = { path = "../game_engine" }
-game_renderer = { path = "../game_renderer" }
-pfong_agent = { path = "../pfong_agent" }
-
-
-macroquad = {version = "0.4.14", features = ["audio"]}
+macroquad = "0.4.14"
 rand = "0.9.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"

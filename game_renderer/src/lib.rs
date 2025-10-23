@@ -9,16 +9,22 @@ pub trait Renderer {
 pub struct WindowRenderer {
     wall_bounce_sound: macroquad::audio::Sound,
     paddle_bounce_sound: macroquad::audio::Sound,
+    player_scored_sound: macroquad::audio::Sound,
+    opponent_scored_sound: macroquad::audio::Sound,
 }
 
 impl WindowRenderer {
     pub fn new(
         wall_bounce_sound: macroquad::audio::Sound,
         paddle_bounce_sound: macroquad::audio::Sound,
+        player_scored_sound: macroquad::audio::Sound,
+        opponent_scored_sound: macroquad::audio::Sound,
     ) -> Self {
         WindowRenderer {
             wall_bounce_sound,
             paddle_bounce_sound,
+            player_scored_sound,
+            opponent_scored_sound,
         }
     }
 
@@ -100,8 +106,11 @@ impl Renderer for WindowRenderer {
         let g = ball.calc_energy().clamp(0.0, max_energy) / max_energy;
         let mut b = player1.calc_energy().clamp(0.0, max_energy) / max_energy;
 
+        let wall_factor = 4.0;
+        let paddle_factor = 4.0;
+
         if game_state.get_wall_hit() {
-            let volume = ball.calc_energy().clamp(0.0, 1.0);
+            let volume = wall_factor * game_state.get_impulse().abs().clamp(0.0, 1.0);
             let sound_params = PlaySoundParams {
                 volume,
                 looped: false,
@@ -110,22 +119,40 @@ impl Renderer for WindowRenderer {
         }
 
         if game_state.get_ball_hit() != 0 {
+            let impulse = game_state.get_impulse().abs().clamp(0.0, 1.0);
             let sound_params = if game_state.get_ball_hit() == 1 {
-                let volume =
-                    player1.calc_energy().clamp(0.0, 1.0) + ball.calc_energy().clamp(0.0, 1.0);
+                let volume = paddle_factor * impulse;
                 PlaySoundParams {
                     volume,
                     looped: false,
                 }
             } else {
-                let volume =
-                    player2.calc_energy().clamp(0.0, 1.0) + ball.calc_energy().clamp(0.0, 1.0);
+                let volume = paddle_factor * impulse;
                 PlaySoundParams {
                     volume,
                     looped: false,
                 }
             };
             play_sound(&self.paddle_bounce_sound, sound_params);
+        }
+
+        let point_scored = game_state.get_point_scored();
+        if point_scored == 1 {
+            play_sound(
+                &self.player_scored_sound,
+                PlaySoundParams {
+                    looped: false,
+                    volume: 1.0,
+                },
+            )
+        } else if point_scored == 2 {
+            play_sound(
+                &self.opponent_scored_sound,
+                PlaySoundParams {
+                    looped: false,
+                    volume: 1.0,
+                },
+            )
         }
 
         let point_time_scale = 0.2;

@@ -17,6 +17,7 @@ pub struct GameState {
     score: [u32; 2],
     ball_hit: u8,
     wall_hit: bool,
+    impulse: f32,
     point_scored: u8,
     last_point_scored: u8,
     hit_time: f32,
@@ -102,6 +103,7 @@ impl GameState {
             score: [0, 0],
             ball_hit: 0,
             wall_hit: false,
+            impulse: 0.0,
             point_scored: 0,
             last_point_scored: 0,
             hit_time: 0.0,
@@ -127,9 +129,12 @@ impl GameState {
 
         self.check_ball_collision();
 
-        let (point_scored, wall_hit) = self.ball.update(delta_time);
+        let (point_scored, wall_hit, impulse) = self.ball.update(delta_time);
         self.handle_point_scored(point_scored);
         self.wall_hit = wall_hit;
+        if wall_hit {
+            self.impulse = impulse;
+        }
     }
 
     fn step_timers(&mut self, delta_time: f32) {
@@ -140,12 +145,16 @@ impl GameState {
 
     fn check_ball_collision(&mut self) {
         if self.hit_time > 0.05 {
-            if self.ball.check_collision(&mut self.player1) {
+            let (hit_player1, impulse1) = self.ball.check_collision(&mut self.player1);
+            let (hit_player2, impulse2) = self.ball.check_collision(&mut self.player2);
+            if hit_player1 {
                 self.ball_hit = 1;
                 self.hit_time = 0.0;
-            } else if self.ball.check_collision(&mut self.player2) {
+                self.impulse = impulse1;
+            } else if hit_player2 {
                 self.ball_hit = 2;
                 self.hit_time = 0.0;
+                self.impulse = impulse2;
             }
         }
     }
@@ -201,6 +210,14 @@ impl GameState {
     pub fn get_ball_hit(&self) -> u8 {
         self.ball_hit
     }
+
+    pub fn get_impulse(&self) -> f32 {
+        self.impulse
+    }
+
+    pub fn get_point_scored(&self) -> u8 {
+        self.point_scored
+    }
 }
 
 impl Default for GameConfig {
@@ -244,18 +261,23 @@ impl Ball {
         }
     }
 
-    fn update(&mut self, delta_time: f32) -> (u8, bool) {
+    fn update(&mut self, delta_time: f32) -> (u8, bool, f32) {
+        let mut impulse = 0.0;
         if self.pos[0] - self.radius < 0.0 {
             self.speed[0] = self.speed[0].abs();
+            impulse = self.mass * self.speed[0].abs();
         }
         if self.pos[0] + self.radius > 1.0 {
             self.speed[0] = -self.speed[0].abs();
+            impulse = self.mass * self.speed[0].abs();
         }
         if self.pos[1] - self.radius < 0.0 {
             self.speed[1] = self.speed[1].abs();
+            impulse = self.mass * self.speed[1].abs();
         }
         if self.pos[1] + self.radius > 1.0 {
             self.speed[1] = -self.speed[1].abs();
+            impulse = self.mass * self.speed[1].abs();
         }
 
         let point_scored = if self.pos[0] - self.radius < 0.0 {
@@ -279,10 +301,10 @@ impl Ball {
         self.pos[0] += self.speed[0] * delta_time;
         self.pos[1] += self.speed[1] * delta_time;
 
-        (point_scored, hit_wall)
+        (point_scored, hit_wall, impulse)
     }
 
-    fn check_collision(&mut self, player: &mut Player) -> bool {
+    fn check_collision(&mut self, player: &mut Player) -> (bool, f32) {
         let ball_pos = vec2(self.pos[0], self.pos[1]);
         let player_pos = vec2(player.pos[0], player.pos[1]);
         let mut ball_speed = vec2(self.speed[0], self.speed[1]);
@@ -296,28 +318,29 @@ impl Ball {
         let d2s = dc - r;
         let d2 = d2s.dot(d2s).sqrt();
 
-        let buffer = player.width / 2.0 + self.radius / 2.0;
-        let mut out = false;
-        if (d1 + d2 > player.height - buffer) & (d1 + d2 < player.height + buffer) {
-            let n = vec2(-player.angle.sin(), player.angle.cos());
-
-            let d = d1 * player.height / (d1 + d2) - player.height / 2.0;
-            let v_c = player_speed + player.angular_velocity * d * n;
-
-            let v_rel = ball_speed - v_c;
-
-            let i = player.calc_moment_of_inertia();
-            let j = -2.0 * v_rel.dot(n) / (1.0 / self.mass + 1.0 / player.mass + (d * d) / i);
-
-            ball_speed += j * n / self.mass;
-            self.speed = [ball_speed.x, ball_speed.y];
-
-            player_speed -= j * n / player.mass;
-            player.speed = [player_speed.x, player_speed.y];
-            player.angular_velocity -= j * d / i;
-            out = true;
+        let buffer = player.width / 4.0 + self.radius / 2.0;
+        if (d1 + d2 < player.height - buffer) | (d1 + d2 > player.height + buffer) {
+            return (false, 0.0);
         }
-        out
+
+        let n = vec2(-player.angle.sin(), player.angle.cos());
+
+        let d = d1 * player.height / (d1 + d2) - player.height / 2.0;
+        let v_c = player_speed + player.angular_velocity * d * n;
+
+        let v_rel = ball_speed - v_c;
+
+        let i = player.calc_moment_of_inertia();
+        let j = -2.0 * v_rel.dot(n) / (1.0 / self.mass + 1.0 / player.mass + (d * d) / i);
+
+        ball_speed += j * n / self.mass;
+        self.speed = [ball_speed.x, ball_speed.y];
+
+        player_speed -= j * n / player.mass;
+        player.speed = [player_speed.x, player_speed.y];
+        player.angular_velocity -= j * d / i;
+
+        (true, j)
     }
 
     pub fn calc_energy(&self) -> f32 {

@@ -308,6 +308,7 @@ dependencies = [
  "game_engine",
  "game_renderer",
  "macroquad",
+ "pfong_agent",
  "rand",
  "serde",
  "serde_json",
@@ -564,6 +565,18 @@ dependencies = [
  "clap",
  "game_modes",
  "macroquad",
+]
+
+[[package]]
+name = "pfong_agent"
+version = "0.1.0"
+dependencies = [
+ "game_engine",
+ "macroquad",
+ "rand",
+ "serde",
+ "serde_json",
+ "tungstenite",
 ]
 
 [[package]]
