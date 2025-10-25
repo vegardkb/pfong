@@ -199,6 +199,7 @@ fn solve_acceleration(
     ball_pos: [f32; 2],
     ball_speed: [f32; 2],
     pos: [f32; 2],
+    opponent_pos: [f32; 2],
     speed: [f32; 2],
     linear_acc: f32,
     angle: f32,
@@ -243,7 +244,10 @@ fn solve_acceleration(
         angle_incidence =
             (target_speed[1] - speed_y_forecast).atan2(target_speed[0] - speed_x_forecast);
 
-        target_angle = angle_incidence / 2.0 + random::<f32>() * 0.1 - 0.05;
+        let d = -pos[1] * opponent_pos[1] + (1.0 - pos[1]) * (1.0 - opponent_pos[1]);
+        let angle_aim = d.atan2(1.0 - pos[0]);
+
+        target_angle = (angle_incidence + angle_aim / 2.0) / 2.0;
 
         (adjustment_x, adjustment_y) = (
             target_angle.cos() * player_height / 3.0,
@@ -378,6 +382,7 @@ impl Agent for HeuristicAgent {
         }
 
         let mut pos = player.pos;
+        let mut opponent_pos = opponent.pos;
         let mut speed = player.speed;
         let mut angle = player.angle;
         let mut angular_velocity = player.angular_velocity;
@@ -385,6 +390,7 @@ impl Agent for HeuristicAgent {
         let mut max_x = player.max_x;
 
         if self.player_id == 1 {
+            opponent_pos[0] = 1.0 - opponent_pos[0];
             pos[0] = 1.0 - pos[0];
             ball_pos[0] = 1.0 - ball_pos[0];
             ball_speed[0] = -ball_speed[0];
@@ -465,6 +471,7 @@ impl Agent for HeuristicAgent {
                 ball_pos,
                 ball_speed,
                 pos,
+                opponent_pos,
                 speed,
                 player.linear_acc,
                 angle,
