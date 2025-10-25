@@ -17,9 +17,11 @@ https://github.com/not-fl3/macroquad
 
 
 
-## Sound
+## Attributions
 Arcade Music Loop.wav by joshuaempyre -- https://freesound.org/s/251461/ -- License: Attribution 4.0
 
-jump1.wav by LloydEvans09 -- https://freesound.org/s/187025/ -- License: Attribution 4.0
+8-Bit - Error by Breviceps -- https://freesound.org/s/450616/ -- License: Creative Commons 0
 
-jump2.wav by LloydEvans09 -- https://freesound.org/s/187024/ -- License: Attribution 4.0
+Acquire by Kenneth_Cooney -- https://freesound.org/s/781199/ -- License: Creative Commons 0
+
+Ping pong ball hit by michorvath -- https://freesound.org/s/269718/ -- License: Creative Commons 0
