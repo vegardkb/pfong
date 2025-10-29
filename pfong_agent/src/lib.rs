@@ -1,11 +1,6 @@
 use game_engine::{Action, GameState};
 use macroquad::input::{KeyCode, is_key_down};
-use rand::random;
-use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
-use std::net::TcpStream;
-use tungstenite::stream::MaybeTlsStream;
-use tungstenite::{Message, WebSocket, connect};
 
 pub struct SessionMetadata {
     pub evaluation_mode: bool,
@@ -506,127 +501,11 @@ impl Agent for HeuristicAgent {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-struct PythonRequest {
-    state: GameState,
-    player_id: u8,
-    evaluation_mode: bool,
-    opponent_id: String,
-    game_terminated: bool,
-}
-
-#[derive(Serialize, Deserialize)]
-struct PythonResponse {
-    action: Action,
-}
-
 pub fn create_agent(player_id: u8, agent_name: String) -> Box<dyn Agent> {
     match agent_name.as_str() {
         "Heuristic" => Box::new(HeuristicAgent { player_id }),
         "Random" => Box::new(RandomAgent {}),
         "Human" => Box::new(HumanAgent {}),
-        "Python" => {
-            let agent = PythonAgent::new(player_id, "ws://localhost:8765");
-            match agent {
-                Ok(agent) => Box::new(agent),
-                Err(err) => {
-                    eprintln!(
-                        "Failed to connect to Python agent, falling back to heuristic: {err}"
-                    );
-                    Box::new(HeuristicAgent { player_id })
-                }
-            }
-        }
         _ => panic!("Unknown agent name"),
-    }
-}
-
-pub fn create_python_agent(
-    player_id: u8,
-    python_url: &str,
-) -> Result<Box<dyn Agent>, Box<dyn std::error::Error>> {
-    let agent = PythonAgent::new(player_id, python_url);
-    match agent {
-        Ok(agent) => Ok(Box::new(agent)),
-        Err(err) => Err(err),
-    }
-}
-
-struct PythonAgent {
-    player_id: u8,
-    websocket: WebSocket<MaybeTlsStream<TcpStream>>,
-    connected: bool,
-}
-
-impl PythonAgent {
-    pub fn new(player_id: u8, python_url: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let (socket, _) = connect(python_url).expect("Can't connect");
-
-        Ok(Self {
-            player_id,
-            websocket: socket,
-            connected: true,
-        })
-    }
-}
-
-impl Agent for PythonAgent {
-    fn get_action(&mut self, state: &GameState, metadata: &SessionMetadata) -> Action {
-        if !self.connected {
-            return Action::default();
-        }
-
-        let opponent_id = if self.player_id == 1 {
-            metadata.player2_id.clone()
-        } else {
-            metadata.player1_id.clone()
-        };
-
-        let request = PythonRequest {
-            state: state.clone(),
-            player_id: self.player_id,
-            opponent_id,
-            evaluation_mode: metadata.evaluation_mode,
-            game_terminated: state.is_terminal(),
-        };
-
-        let request_json = match serde_json::to_string(&request) {
-            Ok(json) => json,
-            Err(e) => {
-                eprintln!("Failed to serialize request: {e}");
-                return Action::default();
-            }
-        };
-
-        // Send request to Python
-        if let Err(e) = self.websocket.send(Message::Text(request_json.into())) {
-            eprintln!("Failed to send request: {e}");
-            self.connected = false;
-            return Action::default();
-        }
-
-        match self.websocket.read() {
-            Ok(msg @ Message::Text(_)) => match msg.to_text() {
-                Ok(text) => match serde_json::from_str::<PythonResponse>(text) {
-                    Ok(python_response) => python_response.action,
-                    Err(e) => {
-                        eprintln!("Failed to parse response: {e}");
-                        Action::default()
-                    }
-                },
-                Err(e) => {
-                    eprintln!("Failed to parse message: {e}");
-                    Action::default()
-                }
-            },
-            _ => {
-                eprintln!("Unexpected message type from Python agent");
-                Action::default()
-            }
-        }
-    }
-
-    fn get_name(&self) -> String {
-        "Python".to_string()
     }
 }
