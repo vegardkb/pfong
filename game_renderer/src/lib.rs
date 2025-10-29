@@ -120,18 +120,10 @@ impl Renderer for WindowRenderer {
 
         if game_state.get_ball_hit() != 0 {
             let impulse = game_state.get_impulse().abs().clamp(0.0, 1.0);
-            let sound_params = if game_state.get_ball_hit() == 1 {
-                let volume = paddle_factor * impulse;
-                PlaySoundParams {
-                    volume,
-                    looped: false,
-                }
-            } else {
-                let volume = paddle_factor * impulse;
-                PlaySoundParams {
-                    volume,
-                    looped: false,
-                }
+            let volume = paddle_factor * impulse;
+            let sound_params = PlaySoundParams {
+                volume,
+                looped: false,
             };
             play_sound(&self.paddle_bounce_sound, sound_params);
         }
@@ -159,10 +151,10 @@ impl Renderer for WindowRenderer {
         let point_intensity = 0.5;
         if last_point_scored == 1 {
             let point_time = game_state.get_point_time();
-            b = b + point_intensity * point_time_scale / (point_time + point_time_scale);
+            b += point_intensity * point_time_scale / (point_time + point_time_scale);
         } else if last_point_scored == 2 {
             let point_time = game_state.get_point_time();
-            r = r + point_intensity * point_time_scale / (point_time + point_time_scale);
+            r += point_intensity * point_time_scale / (point_time + point_time_scale);
         }
 
         let score_intensity = 0.05;

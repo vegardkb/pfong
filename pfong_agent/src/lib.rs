@@ -56,10 +56,10 @@ fn calculate_state_at_time(
         vx = speed[0];
         vy = speed[1];
     } else {
-        x = pos[0] + speed[0] / linear_friction * (1.0 - (-1.0 * linear_friction * t).exp());
-        y = pos[1] + speed[1] / linear_friction * (1.0 - (-1.0 * linear_friction * t).exp());
-        vx = speed[0] * (-1.0 * linear_friction * t).exp();
-        vy = speed[1] * (-1.0 * linear_friction * t).exp();
+        x = pos[0] + speed[0] / linear_friction * (1.0 - (-linear_friction * t).exp());
+        y = pos[1] + speed[1] / linear_friction * (1.0 - (-linear_friction * t).exp());
+        vx = speed[0] * (-linear_friction * t).exp();
+        vy = speed[1] * (-linear_friction * t).exp();
     }
     while x > 2.0 * x_max || x < 0.0 {
         if x > 2.0 * x_max {
@@ -68,7 +68,7 @@ fn calculate_state_at_time(
             x += 2.0 * x_max;
         }
     }
-    while y > 2.0 || y < 0.0 {
+    while (0.0..=2.0).contains(&y) {
         if y > 2.0 {
             y -= 2.0;
         } else if y < 0.0 {
@@ -87,13 +87,13 @@ fn calculate_state_at_time(
 }
 
 fn calculate_speed_at_time(speed: f32, acceleration: f32, friction: f32, time: f32) -> f32 {
-    let exp = (-1.0 * friction * time).exp();
+    let exp = (-friction * time).exp();
     exp * (acceleration * (exp - 1.0) + friction * speed)
 }
 
 fn acceleration_needed(target: f32, pos: f32, speed: f32, friction: f32, time: f32) -> f32 {
     let d = target - pos;
-    let gamma = 1.0 - (-1.0 * friction * time).exp();
+    let gamma = 1.0 - (-friction * time).exp();
     let nom = d - speed * gamma / friction;
     let denom = (friction * time - gamma) / (friction * friction);
     nom / denom
@@ -116,14 +116,12 @@ fn acceleration_needed_ramp(
     let nom = d * k * k * x - v * k * x * (1.0 - gamma) - b * (1.0 - gamma + x * x / 2.0 - x);
     let denom = x * x / 2.0 + gamma * (x + 1.0) - 1.0;
 
-    let out = nom / denom;
-    println!("Acceleration needed: {}", out);
-    out
+    nom / denom
 }
 
 fn acceleration_needed_n(target_error: f32, speed: f32, friction: f32, time: f32, n: f32) -> f32 {
     let a_0 = acceleration_needed(target_error, 0.0, speed, friction, time);
-    let gamma = 1.0 - (-1.0 * friction * time).exp();
+    let gamma = 1.0 - (-friction * time).exp();
     let nom = friction * n * PI;
     let denom = time - gamma / friction;
 
@@ -138,7 +136,7 @@ fn calc_max_allowed_n(
     max_acc: f32,
 ) -> (f32, f32) {
     let a_0 = acceleration_needed(target_error, 0.0, speed, friction, time);
-    let gamma = 1.0 - (-1.0 * friction * time).exp();
+    let gamma = 1.0 - (-friction * time).exp();
 
     let factor = (time - gamma / friction) / (friction * PI);
     let n_low = (-max_acc - a_0) * factor;
@@ -186,8 +184,7 @@ fn ball_is_reachable(
         time,
     );
 
-    return (ax_low.abs().min(ax_high.abs()) < max_acc)
-        && (ay_low.abs().min(ay_high.abs()) < max_acc);
+    (ax_low.abs().min(ax_high.abs()) < max_acc) && (ay_low.abs().min(ay_high.abs()) < max_acc)
 }
 
 fn solve_acceleration(
@@ -207,7 +204,7 @@ fn solve_acceleration(
     num_iterations: usize,
 ) -> (f32, f32, f32) {
     let (target_pos, target_speed) = calculate_state_at_time(ball_pos, ball_speed, 0.0, time, 1.0);
-    let mut left_right = 0.0;
+    let mut left_right;
     let mut down_up = 0.0;
     let mut angle_incidence = 0.0;
     let mut target_angle = 0.0;
@@ -480,7 +477,7 @@ impl Agent for HeuristicAgent {
             );
         }
 
-        let action = if self.player_id == 1 {
+        if self.player_id == 1 {
             Action {
                 left_right: -left_right,
                 down_up,
@@ -492,8 +489,7 @@ impl Agent for HeuristicAgent {
                 down_up,
                 rotate,
             }
-        };
-        action
+        }
     }
 
     fn get_name(&self) -> String {

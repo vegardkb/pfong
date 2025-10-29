@@ -288,15 +288,10 @@ impl Ball {
             0
         };
 
-        let hit_wall = if self.pos[0] - self.radius < 0.0
+        let hit_wall = self.pos[0] - self.radius < 0.0
             || self.pos[0] + self.radius > 1.0
             || self.pos[1] - self.radius < 0.0
-            || self.pos[1] + self.radius > 1.0
-        {
-            true
-        } else {
-            false
-        };
+            || self.pos[1] + self.radius > 1.0;
 
         self.pos[0] += self.speed[0] * delta_time;
         self.pos[1] += self.speed[1] * delta_time;

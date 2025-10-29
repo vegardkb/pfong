@@ -108,7 +108,7 @@ pub async fn run_interactive_mode(player: String, opponent: String) {
     let music = match load_sound("arcade_music.wav").await {
         Ok(sound) => sound,
         Err(err) => {
-            eprintln!("Failed to load sound: {}", err);
+            eprintln!("Failed to load sound: {err}");
             return;
         }
     };
@@ -124,28 +124,28 @@ pub async fn run_interactive_mode(player: String, opponent: String) {
     let wall_bounce_sound = match load_sound("pingpong_paddle_trim.wav").await {
         Ok(sound) => sound,
         Err(err) => {
-            eprintln!("Failed to load sound: {}", err);
+            eprintln!("Failed to load sound: {err}");
             return;
         }
     };
     let paddle_bounce_sound = match load_sound("pingpong_paddle_trim.wav").await {
         Ok(sound) => sound,
         Err(err) => {
-            eprintln!("Failed to load sound: {}", err);
+            eprintln!("Failed to load sound: {err}");
             return;
         }
     };
     let player_scored_sound = match load_sound("point_for.wav").await {
         Ok(sound) => sound,
         Err(err) => {
-            eprintln!("Failed to load sound: {}", err);
+            eprintln!("Failed to load sound: {err}");
             return;
         }
     };
     let opponent_scored_sound = match load_sound("point_against.wav").await {
         Ok(sound) => sound,
         Err(err) => {
-            eprintln!("Failed to load sound: {}", err);
+            eprintln!("Failed to load sound: {err}");
             return;
         }
     };
