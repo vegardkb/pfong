@@ -1,5 +1,6 @@
 use game_engine::{Action, GameState};
-use macroquad::input::{KeyCode, is_key_down};
+use game_renderer::{get_acc_pad_pos, get_rot_pad_pos};
+use macroquad::input::{KeyCode, is_key_down, touches};
 use std::f32::consts::PI;
 
 pub struct SessionMetadata {
@@ -303,9 +304,9 @@ pub trait Agent {
     }
 }
 
-struct HumanAgent {}
+struct KeyboardAgent {}
 
-impl Agent for HumanAgent {
+impl Agent for KeyboardAgent {
     fn get_action(&mut self, _state: &GameState, _metadata: &SessionMetadata) -> Action {
         Action {
             left_right: if is_key_down(KeyCode::A) {
@@ -333,7 +334,71 @@ impl Agent for HumanAgent {
     }
 
     fn get_name(&self) -> String {
-        "Human".to_string()
+        "Keyboard".to_string()
+    }
+}
+
+enum TouchType {
+    Acc,
+    Rot,
+    None,
+}
+
+struct TouchAgent {
+    active_touches: Vec<u64>,
+    active_touches_type: Vec<TouchType>,
+}
+
+impl Agent for TouchAgent {
+    fn get_action(&mut self, _state: &GameState, _metadata: &SessionMetadata) -> Action {
+        let current_touches = touches();
+        let (acc_x, acc_y, acc_w, acc_h) = get_acc_pad_pos();
+        let (rot_x, rot_y, rot_w, rot_h) = get_rot_pad_pos();
+        let mut left_right = 0.0;
+        let mut down_up = 0.0;
+        let mut rotate = 0.0;
+        for touch in current_touches {
+            match self.active_touches.iter().position(|&id| id == touch.id) {
+                Some(index) => match self.active_touches_type[index] {
+                    TouchType::Acc => {
+                        left_right = (touch.position.x - acc_x - acc_w / 2.0) / acc_w;
+                        down_up = (touch.position.y - acc_y - acc_h / 2.0) / acc_h;
+                    }
+                    TouchType::Rot => {
+                        rotate = (touch.position.x - rot_x - rot_w / 2.0) / rot_w;
+                    }
+                    TouchType::None => {
+                        continue;
+                    }
+                },
+                None => {
+                    if [acc_x, acc_x + acc_w].contains(&touch.position.x)
+                        && [acc_y, acc_y + acc_h].contains(&touch.position.y)
+                    {
+                        self.active_touches.push(touch.id);
+                        self.active_touches_type.push(TouchType::Acc);
+                    } else if [rot_x, rot_x + rot_w].contains(&touch.position.x)
+                        && [rot_y, rot_y + rot_h].contains(&touch.position.y)
+                    {
+                        self.active_touches.push(touch.id);
+                        self.active_touches_type.push(TouchType::Rot);
+                    } else {
+                        self.active_touches.push(touch.id);
+                        self.active_touches_type.push(TouchType::None);
+                    }
+                }
+            }
+        }
+
+        Action {
+            left_right,
+            down_up,
+            rotate,
+        }
+    }
+
+    fn get_name(&self) -> String {
+        "Touch".to_string()
     }
 }
 
@@ -501,7 +566,11 @@ pub fn create_agent(player_id: u8, agent_name: String) -> Box<dyn Agent> {
     match agent_name.as_str() {
         "Heuristic" => Box::new(HeuristicAgent { player_id }),
         "Random" => Box::new(RandomAgent {}),
-        "Human" => Box::new(HumanAgent {}),
+        "Keyboard" => Box::new(KeyboardAgent {}),
+        "Touch" => Box::new(TouchAgent {
+            active_touches: Vec::new(),
+            active_touches_type: Vec::new(),
+        }),
         _ => panic!("Unknown agent name"),
     }
 }

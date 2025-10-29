@@ -572,6 +572,7 @@ name = "pfong_agent"
 version = "0.1.0"
 dependencies = [
  "game_engine",
+ "game_renderer",
  "macroquad",
  "rand",
  "serde",
