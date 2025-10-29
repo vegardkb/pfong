@@ -15,6 +15,10 @@ For linux and windows, a couple other dependencies are needed, see:
 https://github.com/not-fl3/macroquad
 
 
+## Roadmap
+- [ ] Make app for android/ios. The road may end with this point tbh.
+- [ ] Single player: Small campaign versus opponents with different stats, behavior, different soundtracks (?). Introduce some RPG elements by allowing upgrading mass or acceleration.
+- [ ] Multiplayer: Ranked games, rankings.
 
 
 ## Attributions
