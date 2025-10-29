@@ -68,7 +68,7 @@ fn calculate_state_at_time(
             x += 2.0 * x_max;
         }
     }
-    while (0.0..=2.0).contains(&y) {
+    while !(0.0..=2.0).contains(&y) {
         if y > 2.0 {
             y -= 2.0;
         } else if y < 0.0 {

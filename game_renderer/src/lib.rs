@@ -29,8 +29,11 @@ impl WindowRenderer {
     }
 
     fn pos_to_coordinates(&self, pos: [f32; 2]) -> (f32, f32) {
-        let x = (pos[0] * 0.8 + 0.1) * screen_width();
-        let y = (pos[1] * 0.8 + 0.15) * screen_height();
+        let shortest_side = screen_width().min(screen_height());
+        let pad_x = (screen_width() - shortest_side) / 2.0;
+        let pad_y = (screen_height() - shortest_side) / 2.0;
+        let x = (pos[0] * 0.8 + 0.1) * shortest_side + pad_x;
+        let y = (pos[1] * 0.8 + 0.15) * shortest_side + pad_y;
         (x, y)
     }
 

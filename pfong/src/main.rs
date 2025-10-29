@@ -5,9 +5,7 @@ use macroquad::prelude::*;
 fn window_conf() -> Conf {
     Conf {
         window_title: "pfong".to_owned(),
-        fullscreen: false,
-        window_height: 1000,
-        window_width: 1000,
+        fullscreen: true,
         ..Default::default()
     }
 }
