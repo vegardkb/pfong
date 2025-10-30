@@ -176,7 +176,6 @@ impl Renderer for WindowRenderer {
         r += score[1] as f32 * score_intensity;
 
         clear_background(Color { r, g, b, a: 0.5 });
-        //clear_background(BLACK);
 
         self.draw_player(player1);
         self.draw_player(player2);

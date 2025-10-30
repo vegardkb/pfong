@@ -6,6 +6,7 @@ fn window_conf() -> Conf {
     Conf {
         window_title: "pfong".to_owned(),
         fullscreen: true,
+        high_dpi: true,
         ..Default::default()
     }
 }
