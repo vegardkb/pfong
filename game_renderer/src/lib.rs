@@ -94,16 +94,6 @@ impl WindowRenderer {
         let (x, y) = self.pos_to_coordinates([0.0, -0.05]);
         draw_text(&format!("Player 2: {}", score[1]), x, y, font_size, WHITE);
     }
-
-    fn draw_acc_pad(&self) {
-        let (x, y, w, h) = get_acc_pad_pos();
-        draw_rectangle(x, y, w, h, get_pad_color());
-    }
-
-    fn draw_rot_pad(&self) {
-        let (x, y, w, h) = get_rot_pad_pos();
-        draw_rectangle(x, y, w, h, get_pad_color());
-    }
 }
 
 impl Renderer for WindowRenderer {
@@ -185,9 +175,6 @@ impl Renderer for WindowRenderer {
         self.draw_inner_boundary(player1);
         self.draw_inner_boundary(player2);
         self.draw_score(game_state);
-
-        self.draw_acc_pad();
-        self.draw_rot_pad();
     }
 }
 
@@ -229,13 +216,4 @@ pub fn get_rot_pad_pos() -> (f32, f32, f32, f32) {
     let x = 19.0 * width / 20.0 - w;
     let y = 19.0 * height / 20.0 - 2.0 * h;
     (x, y, w, h)
-}
-
-fn get_pad_color() -> Color {
-    Color {
-        r: 1.0,
-        g: 1.0,
-        b: 1.0,
-        a: 0.1,
-    }
 }
