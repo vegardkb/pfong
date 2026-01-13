@@ -5,6 +5,13 @@ To run, clone repository and run using cargo. Default mode is to play vs heurist
 cargo run
 ```
 
+
+
+https://github.com/user-attachments/assets/99dfbfc2-6eac-41a1-be85-e8c4e541754a
+
+
+
+
 ## Prerequisites
 Rust and cargo must be installed, see:
 
